@@ -35,16 +35,17 @@ pub fn user_exists(conn: &Connection, username: &str) -> Result<bool> {
     Ok(count > 0)
 }
 
-/// Retrieve a user's ID and role by username.
+/// Retrieve a user's ID and role by username
 pub fn get_user_id_and_role(conn: &Connection, username: &str) -> Result<Option<(i64, String)>> {
     Ok(conn
         .query_row(
-            "SELECT id, user_status FROM users WHERE username = ?1",
+            "SELECT id, user_status FROM users WHERE username = ?1 COLLATE NOCASE",
             params![username],
             |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)),
         )
         .optional()?)
 }
+
 
 /// Log a successful or failed login attempt to the audit table.
 pub fn log_attempt(conn: &Connection, username: &str, success: bool) -> Result<()> {

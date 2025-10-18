@@ -10,33 +10,40 @@ use zeroize::Zeroize; // used for sensitive data are wiped from the memory after
 use rusqlite::{params, Connection, OptionalExtension}; // handle for executing SQL queries
 
 use crate::db::{get_user_id_and_role, user_exists};
+use crate::logger::{init_logger_db, record_login_attempt, check_lockout, fake_verification_delay,};
 
 /*------------------------ Registration---------------------*/
 
-/*  Register new account with role-based access control
-    Admin/Tech can create any user type
-    Homeowner can create Guest accts with PIN while guests cannot */
+/// Register a new account with role-based access control.
+/// Admins can create any user type.
+/// Technicians and Homeowners can create *only Guests*.
+/// Guests cannot register anyone.
 pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -> Result<()> {
-
     // Identify acting user and role
-    let acting_role = acting_user.map(|(_, role)| role).unwrap_or("guest");
+    let (acting_username, acting_role) = match acting_user {
+        Some((u, r)) => (u, r),
+        None => {
+            println!("Anonymous or guest context — registration not permitted.");
+            return Ok(());
+        }
+    };
 
-    // Only admin, technician, or homeowner can register
-    let allowed_roles = ["admin", "technician", "homeowner"];
-    if !allowed_roles.contains(&acting_role) {
-        println!("You do not have permission to register new users.");
-        return Ok(());
+    // Permission enforcement
+    match acting_role {
+        "guest" => {
+            println!("Guests cannot register new users.");
+            return Ok(());
+        }
+        "homeowner" | "technician" | "admin" => {} // allowed
+        _ => {
+            println!("Invalid role '{acting_role}' — access denied.");
+            return Ok(());
+        }
     }
 
-    if acting_role == "guest" {
-    println!("Guests cannot register new users.");
-    return Ok(());
-}
-
-
-    // Get username
-    print!("Enter username (3–32 chars, letters/digits/_ only): ");
-    io::stdout().flush().ok(); // ignore flush error for simplicity
+    //Get username for the new account
+    print!("Enter new username (3–32 chars, letters/digits/_ only): ");
+    io::stdout().flush().ok();
     let mut username = String::new();
     if io::stdin().read_line(&mut username).is_err() {
         println!("Failed to read username input.");
@@ -47,33 +54,43 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         println!("Invalid username format.");
         return Ok(());
     }
-
-    if user_exists(conn, username)? { //Check if the username exists in the db
+    if user_exists(conn, username)? {
         println!("Username '{}' already exists.", username);
         return Ok(());
     }
 
-    // Determine new account role for admins
-    let new_role = if acting_role == "homeowner" {
-        "guest".to_string()
-    } else {
-        print!("Enter role [homeowner | guest | technician] (default guest): ");
-        io::stdout().flush().ok();
-        let mut role_input = String::new();
-        if io::stdin().read_line(&mut role_input).is_err() {
-            println!("Failed to read role input.");
-            return Ok(());
+    // Determine the new user’s role based on who is creating it
+    let new_role = match acting_role {
+        "admin" => {
+            // Admins can create any valid role type
+            print!("Enter role [admin | homeowner | technician | guest]: ");
+            io::stdout().flush().ok();
+            let mut role_input = String::new();
+            if io::stdin().read_line(&mut role_input).is_err() {
+                println!("Failed to read role input.");
+                return Ok(());
+            }
+            let r = role_input.trim().to_lowercase();
+            if r.is_empty() {
+                "guest".to_string()
+            } else {
+                r
+            }
         }
-        let r = role_input.trim();
-        if r.is_empty() { "guest".to_string() } else { r.to_string() }
+        "technician" | "homeowner" => {
+            println!("{acting_role}s may only create guest accounts.");
+            "guest".to_string()
+        }
+        _ => unreachable!(), // already validated above
     };
 
+    // Validate role choice
     if !role_is_valid(&new_role) {
-        println!("Invalid role type.");
+        println!("Invalid role type '{new_role}'.");
         return Ok(());
     }
 
-    // Credential input (password or PIN)
+    // Prompt for credential (password or PIN)
     let credential_label = if new_role == "guest" { "PIN" } else { "Password" };
 
     print!("Enter {credential_label}: ");
@@ -90,14 +107,14 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
 
-    // Password strength validation
+    // Enforce strong password (non-guests only)
     if new_role != "guest" && !password_is_strong(&password, username) {
         let mut p = password;
         p.zeroize();
         return Ok(());
     }
 
-    // Confirm credential
+    // Confirm password/PIN
     print!("Confirm {credential_label}: ");
     io::stdout().flush().ok();
     let mut confirm = String::new();
@@ -112,50 +129,46 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
 
-    // homeowner_id only if a homeowner is creating guest
+    // === Step 4: If a homeowner is creating a guest, link them via homeowner_id ===
     let homeowner_id_opt = if acting_role == "homeowner" {
         if let Some((homeowner_username, _)) = acting_user {
             match get_user_id_and_role(conn, homeowner_username)? {
                 Some((id, status)) if status == "homeowner" => Some(id),
                 _ => {
-                    println!("Acting user is not a valid homeowner.");
-                    return Ok(());
-                }
+                println!("Acting user is not a valid homeowner.");
+                return Ok(());
             }
-        } else { None }
-    } else { None };
+        }
+    } else { None }
+} else { None };
 
+    // Hash and insert
+    let hashed = match hash_password(&password) {
+        Ok(h) => h,
+        Err(e) => {
+            eprintln!("Failed to hash {credential_label}: {e}");
+            return Ok(());
+        }
+    };
+    let mut pw_clear = password;
+    pw_clear.zeroize();
 
-// Hash password or PIN
-let hashed = match hash_password(&password) {
-    Ok(h) => h,
-    Err(e) => {
-        eprintln!("Failed to hash password: {e}");
-        return Ok(()); // stop registration gracefully
-    }
-};
-
-let mut pw_clear = password;
-pw_clear.zeroize();
-
-// Insert safely in transaction
-let tx = conn.transaction()?;
-match tx.execute(
-    "INSERT INTO users (username, hashed_password, user_status, homeowner_id, updated_at)
+    let tx = conn.transaction()?;
+    match tx.execute(
+        "INSERT INTO users (username, hashed_password, user_status, homeowner_id, updated_at)
          VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-    params![username, hashed, new_role, homeowner_id_opt],
-) {
-
+        params![username, hashed, new_role, homeowner_id_opt],
+    ) {
         Ok(_) => {
             tx.commit()?;
-            println!("Registered '{}' as {}", username, new_role);
+            println!("Registered '{username}' as {new_role}");
         }
         Err(e) => {
             let msg = e.to_string();
             if msg.to_lowercase().contains("unique") {
                 println!("Username already exists.");
             } else {
-                println!("Registration failed (internal error).");
+                println!("Registration failed: {msg}");
             }
         }
     }
@@ -163,6 +176,34 @@ match tx.execute(
     Ok(())
 }
 
+
+// Validates a username format (no special characters)
+pub fn username_is_valid(username: &str) -> bool {
+    // Ensure no whitespace or control characters
+    if username.chars().any(|c| c.is_whitespace() || c.is_control()) {
+        eprintln!("Username contains spaces or control characters");
+        return false;
+    }
+    //non-ASCII characters
+    if !username.is_ascii() {
+        eprintln!("Username contains non-ASCII characters.");
+        return false;
+    }
+    // validate allowed characters and length using regex
+    match Regex::new(r"^[A-Za-z0-9_]{3,32}$") {
+        Ok(re) => {
+            if !re.is_match(username) { // if username do not match, invalid
+                eprintln!("Invalid username: only letters, digits, and underscores are allowed (3–32 chars).");
+                return false;
+            }
+            true
+        }
+        Err(err) => { //handle unexpected regex failure without panic
+            eprintln!("Internal regex error: {}", err);
+            false
+        }
+    }
+}
 
 // Validates password strength (upper, lower, digit, special)
 fn password_is_strong(password: &str, username: &str) -> bool {
@@ -239,14 +280,17 @@ fn role_is_valid(role: &str) -> bool {
 /*-------------------------------------LOGIN----------------------*/
 
 // Handle login for all user roles (admin, homeowner, technician, guest).
-pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
+pub fn login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<(String, String)>> {
+    
+    let logger_conn = init_logger_db().context("Failed to initialize logger")?;
+
     // Prompt for username
     print!("Username: ");
     io::stdout()
         .flush()
         .context("Failed to flush stdout while asking for username")?;
 
-    let mut username_input = String::new();
+    let mut username_input = String::new(); // buffer for username input
     io::stdin()
         .read_line(&mut username_input)
         .context("Failed to read username input")?;
@@ -257,14 +301,13 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         return Ok(None);
     }
 
-    // Prompt for password (visible)
+    // Prompt for password 
     print!("Password: ");
     io::stdout()
         .flush()
         .context("Failed to flush stdout while asking for password")?;
 
-    let mut password = String::new();
-    io::stdin().read_line(&mut password)?;
+    let mut password = read_password().context("Failed to read password input")?;
     let password = password.trim().to_string();
 
     // Fetch stored hash and role (case-insensitive username lookup)
@@ -283,6 +326,8 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
             p.zeroize();
 
             if ok {
+                // Record successful login
+                record_login_attempt(&logger_conn, &username, true)?;
                 let role = role_raw.trim().to_lowercase(); // normalize role for logic
 
                 // Update last login timestamp
@@ -305,15 +350,18 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
 
                 return Ok(Some((username, role)));
             } else {
-                println!("Invalid credentials.");
+                // Record failed login
+                record_login_attempt(&logger_conn, &username, false)?;
                 Ok(None)
             }
         }
 
         None => {
+            // No such user - simulate delay to prevent timing attacks
+            fake_verification_delay();
+            record_login_attempt(&logger_conn, &username, false)?;
             let mut p = password;
             p.zeroize();
-            println!("Invalid credentials."); // same output to prevent user enumeration
             Ok(None)
         }
     }
@@ -321,36 +369,66 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
 
 // Verify a password against a stored PHC hash
 pub fn verify_password(password: &str, stored_hash: &str) -> Result<bool> {
-    let parsed = PasswordHash::new(stored_hash).context("Invalid password hash format")?;
-    let hasher = argon2_hasher();
-    Ok(hasher.verify_password(password.as_bytes(), &parsed).is_ok())
+    let parsed = PasswordHash::new(stored_hash).context("Invalid password hash format")?; // parse stored hash
+    let hasher = argon2_hasher(); // create argon2id hasher instance
+    Ok(hasher.verify_password(password.as_bytes(), &parsed).is_ok()) // return true if verified
 }
 
+// Guest login using PIN authentication
+pub fn guest_login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<String>> {
+    // Prompt for username
+    print!("Guest username: ");
+    io::stdout().flush().ok();
+    let mut username = String::new();
+    io::stdin().read_line(&mut username)?;
+    let username = username.trim().to_string();
 
-// Validates a username format (no special characters)
-pub fn username_is_valid(username: &str) -> bool {
-    // Ensure no whitespace or control characters
-    if username.chars().any(|c| c.is_whitespace() || c.is_control()) {
-        eprintln!("Username contains spaces or control characters");
-        return false;
+    if username.is_empty() {
+        println!("Username cannot be empty.");
+        return Ok(None);
     }
-    //non-ASCII characters
-    if !username.is_ascii() {
-        eprintln!("Username contains non-ASCII characters.");
-        return false;
+
+    // Check lockout (uses logger DB)
+    if check_lockout(logger_con, &username)? {
+        return Ok(None);
     }
-    // validate allowed characters and length using regex
-    match Regex::new(r"^[A-Za-z0-9_]{3,32}$") {
-        Ok(re) => {
-            if !re.is_match(username) { // if username do not match, invalid
-                eprintln!("Invalid username: only letters, digits, and underscores are allowed (3–32 chars).");
-                return false;
+
+    // Ask for guest PIN (hidden input)
+    print!("Enter 4-digit PIN: ");
+    io::stdout().flush().ok();
+    let pin = read_password().context("Failed to read PIN")?;
+    let pin = pin.trim().to_string();
+
+    // Fetch stored hash for this guest user
+    let stored_hash_opt = conn
+        .query_row(
+            "SELECT hashed_password FROM users WHERE username = ?1 AND user_status = 'guest'",
+            params![username],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?;
+
+    let result = match stored_hash_opt {
+        Some(stored_hash) => {
+            if crate::auth::verify_password(&pin, &stored_hash)? {
+                record_login_attempt(logger_con, &username, true)?; // success log
+                println!("Welcome, {username}!");
+                Ok(Some(username))
+            } else {
+                record_login_attempt(logger_con, &username, false)?; // wrong PIN
+                Ok(None)
             }
-            true
         }
-        Err(err) => { //handle unexpected regex failure without panic
-            eprintln!("Internal regex error: {}", err);
-            false
+        None => {
+            fake_verification_delay();
+            record_login_attempt(logger_con, &username, false)?; //fake log
+            Ok(None)
         }
-    }
+    };
+
+    // Securely zeroize PIN from memory
+    let mut clear_pin = pin;
+    clear_pin.zeroize();
+
+    result
 }
