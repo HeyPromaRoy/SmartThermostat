@@ -223,8 +223,6 @@ pub fn run_dashboard_inline(
         }
         sleep(interval);
     }
-    // 跑完補一個換行，避免游標卡在同一行
-    //println!();
     Ok(())
 }
 
