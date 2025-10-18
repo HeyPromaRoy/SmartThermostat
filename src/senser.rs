@@ -223,6 +223,7 @@ pub fn run_dashboard_inline(
         }
         sleep(interval);
     }
+    println!("");
     Ok(())
 }
 

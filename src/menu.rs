@@ -1,11 +1,15 @@
 use rusqlite::Connection;
 use anyhow::Result;
 use std::io::{self, Write};
+use std::time::Duration;
 
 use crate::ui;
 use crate::auth;
 use crate::logger;
 use crate::db;
+use crate::senser;
+
+use senser::{run_dashboard_inline, Thresholds};
 
 /// ===============================================================
 /// MAIN MENU DISPATCHER
@@ -147,7 +151,12 @@ fn guest_menu(_conn: &mut Connection, username: &str, _role: &str) -> Result<boo
     match prompt_input() {
         Some(choice) => match choice.trim() {
             "1" => println!("👤 Viewing guest profile for {}...", username),
-            "2" => println!("🌡 Checking indoor temperature (coming soon)..."),
+            "2" => {
+                println!("🌡 Checking indoor temperature");
+                if let Err(e) = senser:: run_dashboard_inline (Thresholds:: default(), Duration:: from_secs (1), Some (10)) {
+                    eprintln! ("dashboard error: {e}");
+                }
+            },
             "3" => println!("🌦 Retrieving outdoor weather stats (coming soon)..."),
             "4" => println!("❄️ Adjusting HVAC control (coming soon)..."),
             "5" | "10" => {

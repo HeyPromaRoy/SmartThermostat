@@ -117,8 +117,8 @@ pub fn guest_ui() {
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] View Profile     |  [6] ".color(Color::White));
-    println!("{}{}", spacing2, "[2] ???    |  [7] ".color(Color::White));
-    println!("{}{}", spacing2, "[3] ???    |  [8] ".color(Color::White));
+    println!("{}{}", spacing2, "[2] Indoor Sensor    |  [7] ".color(Color::White));
+    println!("{}{}", spacing2, "[3] Outdoor Weather  |  [8] ".color(Color::White));
     println!("{}{}", spacing2, "[4] ???  |  [9] ".color(Color::White));
     println!("{}{}", spacing2, "[5] Log out          |  [10] ".color(Color::White));
 
