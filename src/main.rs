@@ -1,9 +1,11 @@
 mod ui;
+mod function;
 mod auth;
 mod db;
 mod weather;
 mod logger;
 mod menu;
+mod senser;
 
 use rusqlite::Connection;
 use anyhow::Result;
@@ -23,7 +25,7 @@ fn main() -> Result<()> {
 
     // Main loop
     loop {
-        match prompt_input() {
+        match function::prompt_input() {
             Some(choice) => match choice.trim() {
                 // === [1] USER LOGIN ===
                 "1" => {
@@ -65,7 +67,7 @@ fn main() -> Result<()> {
                 // === [3] ABOUT ===
                 "3" => {
                     ui::about_ui();
-                    wait_for_enter();
+                    function::wait_for_enter();
                     ui::front_page_ui();
                 }
 
@@ -87,32 +89,3 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-/// ===============================================================
-/// Helper: Prompt user for input
-/// ===============================================================
-pub fn prompt_input() -> Option<String> {
-    if io::stdout().flush().is_err() {
-        eprintln!("Error flushing stdout.");
-        return None;
-    }
-
-    let mut input = String::new();
-    match io::stdin().read_line(&mut input) {
-        Ok(0) => None, // EOF
-        Ok(_) => Some(input.trim().to_string()),
-        Err(e) => {
-            eprintln!("Error reading input: {e}");
-            None
-        }
-    }
-}
-
-/// ===============================================================
-/// Helper: Pause until user presses ENTER
-/// ===============================================================
-pub fn wait_for_enter() {
-    print!("Press ENTER to continue...");
-    let _ = io::stdout().flush();
-    let mut buf = String::new();
-    let _ = io::stdin().read_line(&mut buf);
-}
