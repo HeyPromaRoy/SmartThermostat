@@ -2,22 +2,22 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::America::New_York;
 use rand::Rng;
-use rusqlite::{params, Connection, OptionalExtension};
-use std::{fs::OpenOptions, io::Write, thread, time::Duration as StdDuration};
+use rusqlite::{params, Connection, OptionalExtension, ToSql};
+use std::{fs::OpenOptions, io::{self, Write}, thread, time::Duration as StdDuration};
 
 // ------------------ PARAMETERS ------------------
 const MAX_ATTEMPTS: usize = 5;          // Max failed attempts before lockout
 const LOCKOUT_SECONDS_BASE: i64 = 30;   // Initial lockout (30s)
 const MAX_LOCKOUT_SECONDS: i64 = 300;   // Max lockout cap (5 minutes)
 
-// ------------------ HELPERS ------------------
+
 
 // Current timestamp in Eastern Time (EST/EDT)
 fn now_est() -> DateTime<chrono_tz::Tz> {
     New_York.from_utc_datetime(&Utc::now().naive_utc())
 }
 
-// Small random delay to prevent timing attacks (no SystemTime unwraps!)
+// Small random delay to prevent timing attacks
 pub fn fake_verification_delay() {
     let delay_ms: u64 = rand::thread_rng().gen_range(100..=250);
     thread::sleep(StdDuration::from_millis(delay_ms));
@@ -25,50 +25,77 @@ pub fn fake_verification_delay() {
 
 // ------------------ DATABASE SETUP ------------------
 
-// Initialize logger database (no admin restriction — system needs it)
+// Initialize logger database
 pub fn init_logger_db() -> Result<Connection> {
     let conn = Connection::open("logger.db").context("Failed to open logger.db")?;
+
     conn.execute_batch(
         r#"
         PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = NORMAL;
+        PRAGMA synchronous = FULL;
+        PRAGMA foreign_keys = ON;
+        PRAGMA secure_delete = ON;
 
-        CREATE TABLE IF NOT EXISTS login_log (
+        CREATE TABLE IF NOT EXISTS security_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL,
-            status TEXT CHECK(status IN ('SUCCESS','FAILURE','LOCKOUT','LOCKOUT_CLEARED')) NOT NULL,
-            timestamp TEXT NOT NULL
+            actor_username TEXT NOT NULL,
+            target_username TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(
+                event_type IN (
+                    'SUCCESS',
+                    'FAILURE',
+                    'LOCKOUT',
+                    'LOCKOUT_CLEARED',
+                    'ACCOUNT_DISABLED',
+                    'ACCOUNT_ENABLED',
+                    'ADMIN_LOGIN',
+                    'PASSWORD_CHANGE'
+                )
+            ),
+            description TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
         CREATE TABLE IF NOT EXISTS lockouts (
-            username TEXT PRIMARY KEY,
+            username TEXT PRIMARY KEY COLLATE NOCASE,
             locked_until TEXT NOT NULL,
             lock_count INTEGER DEFAULT 1
         );
+
+        CREATE INDEX IF NOT EXISTS ix_security_log_target ON security_log(target_username);
+        CREATE INDEX IF NOT EXISTS ix_security_log_actor ON security_log(actor_username);
         "#,
     )?;
+
     Ok(conn)
 }
 
 // ------------------ LOGGING ------------------
-
 // Log event to both DB and file
-fn log_event(conn: &Connection, username: &str, event: &str) -> Result<()> {
+pub fn log_event(conn: &Connection, actor_username: &str, target_username: Option<&str>, event_type: &str, description: Option<&str>) -> Result<()> {
     let timestamp = now_est().to_rfc3339();
 
     conn.execute(
-        "INSERT INTO login_log (username, status, timestamp)
-         VALUES (?1, ?2, ?3)",
-        params![username, event, timestamp],
+        "INSERT INTO security_log (actor_username, target_username, event_type, description, timestamp)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![actor_username, target_username.unwrap_or(actor_username), event_type, description.unwrap_or(""), timestamp],
     )?;
 
     // Log to file
     let mut file = OpenOptions::new()
         .create(true)
         .append(true)
-        .open("logins.log")
-        .context("Failed to open logins.log")?;
-    writeln!(file, "{} | {} | {}", timestamp, username, event)?;
+        .open("security.log")
+        .context("Failed to open security.log")?;
+    writeln!(
+        file,
+        "{} | actor={} | target={} | event={} | desc={}",
+        timestamp,
+        actor_username,
+        target_username.unwrap_or("-"),
+        event_type,
+        description.unwrap_or("-")
+    )?;
     Ok(())
 }
 
@@ -78,7 +105,7 @@ fn log_event(conn: &Connection, username: &str, event: &str) -> Result<()> {
 pub fn check_lockout(conn: &Connection, username: &str) -> Result<bool> {
     if let Some(locked_until_str) = conn
         .query_row(
-            "SELECT locked_until FROM lockouts WHERE username = ?1",
+            "SELECT locked_until FROM lockouts WHERE username = ?1 COLLATE NOCASE",
             params![username],
             |r| r.get::<_, String>(0),
         )
@@ -91,12 +118,12 @@ pub fn check_lockout(conn: &Connection, username: &str) -> Result<bool> {
         if now < locked_until {
             let remaining = (locked_until - now).num_seconds();
             println!(
-                "⏳ Account '{}' is locked for another {} seconds (until {}).",
+                "Account '{}' is locked for another {} seconds (until {}).",
                 username,
                 remaining,
                 locked_until.format("%Y-%m-%d %H:%M:%S %Z")
             );
-            return Ok(true);
+             return Ok(true);
         } else {
             conn.execute("DELETE FROM lockouts WHERE username = ?1", params![username])?;
         }
@@ -105,31 +132,40 @@ pub fn check_lockout(conn: &Connection, username: &str) -> Result<bool> {
 }
 
 // Record success/failure and apply lockouts automatically
-pub fn record_login_attempt(conn: &Connection, username: &str, success: bool) -> Result<()> {
+pub fn record_login_attempt(conn: &Connection, actor_username: &str, success: bool) -> Result<()> {
     if success {
-        log_event(conn, username, "SUCCESS")?;
-        conn.execute("DELETE FROM lockouts WHERE username = ?1", params![username])?;
+        log_event(conn, actor_username, Some(actor_username), "SUCCESS", None)?;
+
+        conn.execute("DELETE FROM lockouts WHERE username = ?1", params![actor_username])?;
         return Ok(());
     }
 
     // Failed attempt
-    log_event(conn, username, "FAILURE")?;
+    log_event(conn, actor_username, Some(actor_username), "FAILURE", None)?;
 
-    // Count recent failures within last 5 minutes
-    let recent_failures: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM login_log
-         WHERE username = ?1 AND status = 'FAILURE'
-         AND timestamp > datetime('now', '-5 minutes')",
-        params![username],
+   let recent_failures: i64 = conn.query_row(
+        r#"
+        SELECT COUNT(*) FROM security_log
+        WHERE actor_username = ?1
+          AND event_type = 'FAILURE'
+          AND timestamp > IFNULL((
+                SELECT MAX(timestamp)
+                FROM security_log
+                WHERE actor_username = ?1 AND event_type = 'SUCCESS'
+          ), '1970-01-01T00:00:00Z')
+          AND timestamp > datetime('now', '-5 minutes')
+        "#,
+        params![actor_username],
         |r| r.get(0),
     )?;
+
 
     if recent_failures >= MAX_ATTEMPTS as i64 {
         // Get previous lockout count (if exists)
         let prev_count: Option<i64> = conn
             .query_row(
                 "SELECT lock_count FROM lockouts WHERE username = ?1",
-                params![username],
+                params![actor_username],
                 |r| r.get(0),
             )
             .optional()?;
@@ -143,31 +179,250 @@ pub fn record_login_attempt(conn: &Connection, username: &str, success: bool) ->
         conn.execute(
             "INSERT OR REPLACE INTO lockouts (username, locked_until, lock_count)
              VALUES (?1, ?2, ?3)",
-            params![username, locked_until, next_count],
+            params![actor_username, locked_until, next_count],
         )?;
 
-        log_event(conn, username, "LOCKOUT")?;
+        log_event(conn, actor_username, Some(actor_username), "LOCKOUT", 
+        Some("Account locked due to repeated failed attempts."))?;
         println!(
             "'{}' locked for {} seconds (until {}).",
-            username, lockout_secs, locked_until
+            actor_username, lockout_secs, locked_until
         );
     }
 
     Ok(())
 }
 
-// Allow admin to clear lockouts (but log the action)
-pub fn clear_lockout(conn: &Connection, current_role: &str, username: &str) -> Result<()> {
-    if current_role != "admin" {
-        return Err(anyhow!("Access denied: only admin can remove lockouts."));
+pub fn clear_lockout(conn: &Connection, current_admin: &str, username: Option<&str>) -> Result<()> {
+    // Restrict access — only admins can clear or view lockouts
+    if current_admin != "admin" {
+        return Err(anyhow!("Access denied: only admin can view or clear lockouts."));
     }
 
-    let affected = conn.execute("DELETE FROM lockouts WHERE username = ?1", params![username])?;
-    if affected > 0 {
-        println!("Admin cleared active lockout for '{}'.", username);
-        log_event(conn, username, "LOCKOUT_CLEARED")?;
-    } else {
-        println!("No active lockout found for '{}'.", username);
+    // Ensure the lockouts table exists
+    // This prevents runtime panics if the database is new or not initialized yet.
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS lockouts (
+            username TEXT PRIMARY KEY COLLATE NOCASE,
+            locked_until TEXT NOT NULL,
+            lock_count INTEGER DEFAULT 1
+        );",
+        [],
+    )
+    .context("Failed to ensure lockouts table exists")?;
+
+    //prepare SQL to read all locked accounts
+    // The lockouts table stores who is locked, until when, and how many times.
+    let mut stmt = conn
+        .prepare(
+            "SELECT username, locked_until, lock_count FROM lockouts ORDER BY locked_until ASC",
+        )
+        .context("Failed to query lockouts")?;
+
+    //Execute the query and map results into Rust tuples
+    // Each row will become (username, locked_until, lock_count)
+    let lockouts = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?, // username
+                r.get::<_, String>(1)?, // locked_until
+                r.get::<_, i64>(2)?,    // lock_count
+            ))
+        })
+        .context("Failed to iterate lockout rows")?;
+
+    // Print all currently locked accounts
+    println!("\nCurrently Locked Accounts:");
+    let mut found_any = false; // track if any results were printed
+
+    for row in lockouts {
+        let (user, until, count) = row?; // unpack row data
+
+        // Convert RFC3339 timestamp → Eastern Time (human-readable)
+        let until_dt = DateTime::parse_from_rfc3339(&until)?.with_timezone(&New_York);
+
+        // Print one lockout entry per line
+        println!(
+            " - {} | locked until {} | attempts escalated: {}x",
+            user,
+            until_dt.format("%Y-%m-%d %H:%M:%S %Z"),
+            count
+        );
+
+        found_any = true;
     }
+
+    // If there are no lockouts, exit
+    if !found_any {
+        println!("No users are currently locked out.\n");
+        return Ok(());
+    }
+
+    // Optionally clear one specific user if username is provided
+    if let Some(target_user) = username {
+        // Delete the user’s entry from lockouts (if it exists)
+        let affected = conn
+            .execute(
+                "DELETE FROM lockouts WHERE username = ?1 COLLATE NOCASE",
+                params![target_user],
+            )
+            .context("Failed to delete lockout entry")?;
+
+        //Report what happened
+        if affected > 0 {
+            // Found and cleared the lockout successfully
+            println!("Lockout cleared for '{}'.", target_user);
+            log_event(conn, current_admin, Some(target_user), "LOCKOUT_CLEARED", Some("Admin cleared lockout"))?;
+        } else {
+            // No matching entry found for that username
+            println!("'{}' was not found among locked accounts.", target_user);
+        }
+    } else {
+        // No username provided → only list lockouts without clearing anything
+        println!("No username specified — no lockouts were cleared.");
+    }
+
+    Ok(())
+}
+
+pub fn view_security_log(logger_conn: &Connection, admin_username: &str, current_role: &str) -> Result<()> {
+    // Ensure admin privileges
+    if current_role != "admin" {
+        println!("Access denied: Only administrators can view the security log.");
+        return Ok(());
+    }
+
+    // Verify the table exists first to avoid panics
+    let table_exists: bool = logger_conn
+        .query_row(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='security_log'",
+            [],
+            |_| Ok(true),
+        )
+        .optional()?
+        .unwrap_or(false);
+
+    if !table_exists {
+        eprintln!("No security log found — the table 'security_log' does not exist.");
+        return Ok(());
+    }
+
+    println!("\n===== Security Audit Log =====");
+    println!("Filter options:");
+    println!("  [1] View all logs");
+    println!("  [2] Filter by username");
+    println!("  [3] Filter by event type");
+    println!("  [4] Show recent N entries");
+    println!("  [0] Cancel");
+
+    print!("Select an option: ");
+    io::stdout().flush().ok();
+
+    let mut choice = String::new();
+    io::stdin().read_line(&mut choice).ok();
+    let choice = choice.trim();
+
+    // Start query
+    let mut query = String::from(
+        "SELECT timestamp, actor_username, target_username, event_type, description
+         FROM security_log",
+    );
+
+    // For parameters
+    let mut params_vec: Vec<String> = Vec::new();
+    let mut limit_val: Option<i64> = None;
+
+    match choice {
+        "1" => {
+            // no filters
+        }
+        "2" => {
+            print!("Enter username to filter by (actor or target): ");
+            io::stdout().flush().ok();
+            let mut name = String::new();
+            io::stdin().read_line(&mut name)?;
+            let name = name.trim().to_string();
+            query.push_str(" WHERE actor_username = ?1 OR target_username = ?1 COLLATE NOCASE");
+            params_vec.push(name);
+        }
+        "3" => {
+            print!("Enter event type (SUCCESS, FAILURE, LOCKOUT, etc.): ");
+            io::stdout().flush().ok();
+            let mut event = String::new();
+            io::stdin().read_line(&mut event)?;
+            let event = event.trim().to_uppercase();
+            query.push_str(" WHERE event_type = ?1");
+            params_vec.push(event);
+        }
+        "4" => {
+            print!("Enter number of recent entries to view: ");
+            io::stdout().flush().ok();
+            let mut limit = String::new();
+            io::stdin().read_line(&mut limit)?;
+            let limit = limit.trim().parse::<i64>().unwrap_or(20);
+            query.push_str(" ORDER BY id DESC LIMIT ?1");
+            limit_val = Some(limit);
+        }
+        "0" => {
+            println!("Cancelled viewing logs.");
+            return Ok(());
+        }
+        _ => {
+            println!("Invalid choice. Returning to admin menu.");
+            return Ok(());
+        }
+    }
+
+    query.push_str(";");
+
+    let mut stmt = logger_conn.prepare(&query)?;
+
+    // Dynamically build SQL parameters (safe against SQL injection, no lifetimes)
+    let mut params_boxed: Vec<Box<dyn ToSql>> = Vec::new();
+
+    if !params_vec.is_empty() {
+    params_boxed.push(Box::new(params_vec[0].clone()));
+    } else if let Some(limit) = limit_val {
+    params_boxed.push(Box::new(limit));
+    }
+
+    let params: Vec<&dyn ToSql> = params_boxed.iter().map(|b| b.as_ref()).collect();
+
+
+    //Single query_map call with unified closure (no type mismatch)
+    let rows = stmt.query_map(&*params, |r| {
+        Ok((
+            r.get::<_, String>(0)?,              // timestamp
+            r.get::<_, String>(1)?,              // actor_username
+            r.get::<_, Option<String>>(2)?,      // target_username
+            r.get::<_, String>(3)?,              // event_type
+            r.get::<_, Option<String>>(4)?,      // description
+        ))
+    })?;
+
+    println!("\n{:<45} {:<15} {:<15} {:<18} {}", 
+        "Timestamp (UTC)", "Actor", "Target", "Event", "Description");
+    println!("{}", "-".repeat(130));
+
+    let mut found_any = false;
+
+    for row in rows {
+        let (ts, actor, target, event, desc) = row?;
+        found_any = true;
+        println!(
+            "{:<45} {:<15} {:<15} {:<18} {}",
+            ts,
+            actor,
+            target.unwrap_or_else(|| "-".to_string()),
+            event,
+            desc.unwrap_or_else(|| "".to_string())
+        );
+    }
+
+    if !found_any {
+        println!("(No matching records found.)");
+    }
+
+    println!("{}", "-".repeat(130));
     Ok(())
 }
