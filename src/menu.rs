@@ -96,6 +96,12 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
             "7" => {
                 println!("🧹 Clearing user lockouts...");
                 logger::clear_lockout(conn, "admin", username)?;
+            },
+            "8" => {
+                println!("🌡 Checking indoor temperature");
+                if let Err(e) = senser:: run_dashboard_inline (Thresholds:: default(), Duration:: from_secs (1), Some (10)) {
+                    eprintln! ("dashboard error: {e}");
+                }
             }
             "5" | "10" => {
                 println!("🔒 Logging out...");
