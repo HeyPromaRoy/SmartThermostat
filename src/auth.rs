@@ -10,7 +10,7 @@ use zeroize::Zeroize; // used for sensitive data are wiped from the memory after
 use rusqlite::{params, Connection, OptionalExtension}; // handle for executing SQL queries
 
 use crate::db::{get_user_id_and_role, user_exists};
-use crate::logger::{init_logger_db, record_login_attempt, check_lockout, fake_verification_delay,};
+use crate::logger::{init_logger_db, record_login_attempt, check_lockout, log_event, fake_verification_delay};
 
 /*------------------------ Registration---------------------*/
 
@@ -63,7 +63,7 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
     let new_role = match acting_role {
         "admin" => {
             // Admins can create any valid role type
-            print!("Enter role [admin | homeowner | technician | guest]: ");
+            print!("Enter role [homeowner | technician | guest]: ");
             io::stdout().flush().ok();
             let mut role_input = String::new();
             if io::stdin().read_line(&mut role_input).is_err() {
@@ -114,6 +114,27 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
 
+    // If registering a guest, enforce PIN policy
+if new_role == "guest" {
+    // numeric-only, min 6 digits. Adjust MIN_PIN_LEN to taste.
+    const MIN_PIN_LEN: usize = 6;
+    if password.len() < MIN_PIN_LEN || !password.chars().all(|c| c.is_ascii_digit()) {
+        println!(
+            "Invalid PIN. PIN must be numeric and at least {} digits long.",
+            MIN_PIN_LEN
+        );
+        let mut p = password;
+        p.zeroize();
+        return Ok(());
+        }
+    } else {
+    // Password strength validation for non-guests as before
+    if !password_is_strong(&password, username) {
+        let mut p = password;
+        p.zeroize();
+        return Ok(());
+    }
+}
     // Confirm password/PIN
     print!("Confirm {credential_label}: ");
     io::stdout().flush().ok();
@@ -129,7 +150,7 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
 
-    // === Step 4: If a homeowner is creating a guest, link them via homeowner_id ===
+    // If a homeowner is creating a guest, link them via homeowner_id 
     let homeowner_id_opt = if acting_role == "homeowner" {
         if let Some((homeowner_username, _)) = acting_user {
             match get_user_id_and_role(conn, homeowner_username)? {
@@ -300,6 +321,10 @@ pub fn login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<(
         eprintln!("Username is required.");
         return Ok(None);
     }
+// 
+    if check_lockout(logger_con, &username)? {
+        return Ok(None);
+    }
 
     // Prompt for password 
     print!("Password: ");
@@ -313,14 +338,21 @@ pub fn login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<(
     // Fetch stored hash and role (case-insensitive username lookup)
     let row = conn
         .query_row(
-            "SELECT hashed_password, user_status FROM users WHERE username = ?1 COLLATE NOCASE",
+            "SELECT hashed_password, user_status, is_active FROM users WHERE username = ?1 COLLATE NOCASE",
             params![username],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)),
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1), r.get::<_, i64>(2)?)),
         )
         .optional()?;
 
     match row {
-        Some((stored_hash, role_raw)) => {
+        Some((stored_hash, role_raw, is_active)) => {
+
+            if is_active != 1 {
+                println!("Account {} is currently disabled. Please contact administrator.", username);
+
+                log_event(&logger_conn, &username, Some(&username), "ACCOUNT_DISABLED", Some("Login blocked"),)?;
+                return Ok(None);
+            }
             let ok = verify_password(&password, &stored_hash)?;
             let mut p = password;
             p.zeroize();
@@ -328,7 +360,7 @@ pub fn login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<(
             if ok {
                 // Record successful login
                 record_login_attempt(&logger_conn, &username, true)?;
-                let role = role_raw.trim().to_lowercase(); // normalize role for logic
+                let role = role_raw?.trim().to_lowercase(); // normalize role for logic
 
                 // Update last login timestamp
                 conn.execute(
@@ -345,7 +377,7 @@ pub fn login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<(
                     "homeowner" => println!("🏠 Welcome home, {username}!"),
                     "technician" => println!("🧰 Welcome, {username}!"),
                     "guest" => println!("👋 Welcome, {username}!"),
-                    _ => println!("✅ Welcome, {username}! (role: {role})"),
+                    _ => println!("Unknown role! Please contact an administrator!"),
                 }
 
                 return Ok(Some((username, role)));
@@ -374,61 +406,3 @@ pub fn verify_password(password: &str, stored_hash: &str) -> Result<bool> {
     Ok(hasher.verify_password(password.as_bytes(), &parsed).is_ok()) // return true if verified
 }
 
-// Guest login using PIN authentication
-pub fn guest_login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<String>> {
-    // Prompt for username
-    print!("Guest username: ");
-    io::stdout().flush().ok();
-    let mut username = String::new();
-    io::stdin().read_line(&mut username)?;
-    let username = username.trim().to_string();
-
-    if username.is_empty() {
-        println!("Username cannot be empty.");
-        return Ok(None);
-    }
-
-    // Check lockout (uses logger DB)
-    if check_lockout(logger_con, &username)? {
-        return Ok(None);
-    }
-
-    // Ask for guest PIN (hidden input)
-    print!("Enter 4-digit PIN: ");
-    io::stdout().flush().ok();
-    let pin = read_password().context("Failed to read PIN")?;
-    let pin = pin.trim().to_string();
-
-    // Fetch stored hash for this guest user
-    let stored_hash_opt = conn
-        .query_row(
-            "SELECT hashed_password FROM users WHERE username = ?1 AND user_status = 'guest'",
-            params![username],
-            |r| r.get::<_, String>(0),
-        )
-        .optional()?;
-
-    let result = match stored_hash_opt {
-        Some(stored_hash) => {
-            if crate::auth::verify_password(&pin, &stored_hash)? {
-                record_login_attempt(logger_con, &username, true)?; // success log
-                println!("Welcome, {username}!");
-                Ok(Some(username))
-            } else {
-                record_login_attempt(logger_con, &username, false)?; // wrong PIN
-                Ok(None)
-            }
-        }
-        None => {
-            fake_verification_delay();
-            record_login_attempt(logger_con, &username, false)?; //fake log
-            Ok(None)
-        }
-    };
-
-    // Securely zeroize PIN from memory
-    let mut clear_pin = pin;
-    clear_pin.zeroize();
-
-    result
-}
