@@ -1,0 +1,33 @@
+2025-10-19T17:22:40.591090200-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T17:23:39.105046800-04:00 | actor=tahsinur | target=tahsinur | event=SUCCESS | desc=-
+2025-10-19T17:24:09.692981800-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T17:25:59.629191600-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:26:07.034990300-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:26:21.007699500-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:26:54.419171400-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:27:02.917490600-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:27:02.924778500-04:00 | actor=tahsinur | target=tahsinur | event=LOCKOUT | desc=Account locked due to repeated failed attempts.
+2025-10-19T17:27:46.358083400-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:27:46.367743-04:00 | actor=tahsinur | target=tahsinur | event=LOCKOUT | desc=Account locked due to repeated failed attempts.
+2025-10-19T17:29:05.071920200-04:00 | actor=guest123 | target=guest123 | event=SUCCESS | desc=-
+2025-10-19T17:31:20.536996700-04:00 | actor=tahsinur | target=tahsinur | event=FAILURE | desc=-
+2025-10-19T17:31:20.550153500-04:00 | actor=tahsinur | target=tahsinur | event=LOCKOUT | desc=Account locked due to repeated failed attempts.
+2025-10-19T17:31:42.645770-04:00 | actor=admin | target=admin | event=FAILURE | desc=-
+2025-10-19T17:32:09.859577900-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T17:40:44.018014200-04:00 | actor=tahsinur | target=tahsinur | event=ACCOUNT_DISABLED | desc=Login blocked
+2025-10-19T17:48:13.037573900-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T17:52:27.725417700-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T18:25:40.089470200-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T18:26:38.745074100-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T18:28:56.573749900-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T18:29:15.663036500-04:00 | actor=admin | target=technician | event=ACCOUNT_DISABLED | desc=User 'technician' disabled by Admin
+2025-10-19T18:29:33.073651700-04:00 | actor=admin | target=technician | event=ACCOUNT_ENABLED | desc=User 'technician' enabled by Admin
+2025-10-19T19:12:35.260051200-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:14:39.033542500-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:15:44.411666800-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:17:12.257483100-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:18:06.107117900-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:18:57.103224700-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:19:38.353948900-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:20:20.955501100-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
+2025-10-19T19:21:21.624755900-04:00 | actor=admin | target=admin | event=SUCCESS | desc=-
