@@ -18,8 +18,6 @@ fn main() -> Result<()> {
 
     // Show front page UI
     ui::front_page_ui();
-    // Show front page UI
-    ui::front_page_ui();
 
     // Main program loop
     loop {
