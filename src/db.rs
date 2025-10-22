@@ -4,7 +4,8 @@ use chrono_tz::America::New_York;
 use rusqlite::{params, Connection, OptionalExtension};
 use rpassword::read_password;
 use std::io::{self, Write};
-use zeroize::Zeroize;
+use uuid::Uuid;
+use zeroize::Zeroizing;
 
 use crate::auth;
 use crate::logger;
@@ -22,7 +23,8 @@ fn to_eastern_time(utc_str: &str) -> Option<String> {
 }
 
 // Initialize all required database tables and indexes.
-pub fn init_user_db(conn: &Connection) -> Result<()> {
+pub fn init_system_db() -> Result<Connection> {
+    let conn = Connection::open("system.db").context("Failed to open system.db")?;
         //Apply secure PRAGMA settings
         conn.execute_batch(
         r#"
@@ -35,14 +37,17 @@ pub fn init_user_db(conn: &Connection) -> Result<()> {
     )
     .context("Failed to apply secure PRAGMA settings")?;
 
-    // create users table with 
+    // create tables for users, security logs, and lockouts
     conn.execute_batch(
         r#"
+        -- ===============================
+        -- USERS TABLE
+        -- ===============================
         CREATE TABLE IF NOT EXISTS users (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
-            username        TEXT NOT NULL UNIQUE,
+            username        TEXT NOT NULL UNIQUE COLLATE NOCASE,
             hashed_password TEXT NOT NULL,
-            user_status     TEXT CHECK(user_status IN ('admin','homeowner','guest','technician')) NOT NULL,
+            user_status     TEXT CHECK(user_status IN ('admin', 'technician', 'homeowner','guest')) NOT NULL,
             homeowner_id    INTEGER REFERENCES users(id),
             is_active       INTEGER DEFAULT 1,
             last_login_time TEXT,
@@ -52,9 +57,105 @@ pub fn init_user_db(conn: &Connection) -> Result<()> {
 
         CREATE INDEX IF NOT EXISTS ix_users_homeowner_id ON users(homeowner_id);
         CREATE INDEX IF NOT EXISTS ix_users_username ON users(username);
+
+        -- ===============================
+        -- SECURITY LOG TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS security_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_username TEXT NOT NULL,
+            target_username TEXT NOT NULL,
+            event_type TEXT NOT NULL CHECK(
+                event_type IN (
+                    'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
+                    'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'ADMIN_LOGIN', 'PASSWORD_CHANGE'
+                )
+            ),
+            description TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_security_log_actor ON security_log(actor_username);
+        CREATE INDEX IF NOT EXISTS ix_security_log_target ON security_log(target_username);
+
+        -- ===============================
+        -- LOCKOUT TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS lockouts (
+            username TEXT PRIMARY KEY COLLATE NOCASE,
+            locked_until TEXT NOT NULL,
+            lock_count INTEGER DEFAULT 1
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_lockouts_username ON lockouts(username);
+        
+        -- ===============================
+        -- SESSION STATE TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS session_state (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            session_token TEXT UNIQUE,
+            login_time TEXT DEFAULT CURRENT_TIMESTAMP,
+            last_active_time TEXT,
+            session_expires TEXT,
+            is_active INTEGER DEFAULT 1 CHECK(is_active IN (0,1)),
+            FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE
+        );
         "#,
     )
-    .context("Failed to initialize users table")?;
+    .context("Failed to initialize tables in system.db")?;
+
+    Ok(conn)
+}
+
+// Returns a reusable SQLite connection to the unified database.
+pub fn get_connection() -> Result<Connection> {
+    init_system_db()
+}
+
+/*Creates or updates a user session in the `session_state` table.
+    - Marks old sessions as inactive
+    - Inserts a new session record with expiry 30 min from now
+    - Returns the session_token for in-memory tracking */
+pub fn update_session(conn: &Connection, username: &str) -> Result<String> {
+    let session_token = Uuid::new_v4().to_string();
+    let expires = Utc::now() + chrono::Duration::minutes(30);
+    let expires_str = expires.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    // deactivate old sessions for this user
+    conn.execute(
+        "UPDATE session_state
+         SET is_active = 0, last_active_time = datetime('now')
+         WHERE username = ?1",
+        params![username],
+    )?;
+
+    // insert new session or update existing one
+    conn.execute(
+        "INSERT INTO session_state (username, session_token, login_time, session_expires, is_active)
+         VALUES (?1, ?2, datetime('now'), ?3, 1)
+         ON CONFLICT(username)
+         DO UPDATE SET 
+            session_token = excluded.session_token,
+            login_time = excluded.login_time,
+            session_expires = excluded.session_expires,
+            is_active = 1,
+            last_active_time = NULL",
+        params![username, session_token, expires_str],
+    )?;
+
+    Ok(session_token)
+}
+
+// Ends the active session of the user by marking it as inactive and records the last_active_time.
+pub fn end_session(conn: &Connection, username: &str) -> Result<()> {
+    conn.execute(
+        "UPDATE session_state
+         SET is_active = 0, last_active_time = datetime('now')
+         WHERE username = ?1 AND is_active = 1",
+        params![username],
+    )?;
     Ok(())
 }
 
@@ -82,94 +183,22 @@ pub fn get_user_id_and_role(conn: &Connection, username: &str) -> Result<Option<
 }
 
 // Insert a new user record (used internally by registration).
-pub fn insert_user(
-    conn: &mut Connection,
-    username: &str,
-    hashed: &str,
-    role: &str,
-    homeowner_id: Option<i64>) -> Result<()> {
+pub fn insert_user(conn: &mut Connection, username: &str, admin_username: &str ,hashed: &str, role: &str, homeowner_id: Option<i64>) -> Result<()> {
     let tx = conn.transaction().context("Failed to start transaction")?;
     tx.execute(
         "INSERT INTO users (username, hashed_password, user_status, homeowner_id, updated_at)
          VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-        params![username, hashed, role, homeowner_id],
-    )
-    .context("Failed to insert user")?;
-    tx.commit().context("Failed to commit transaction")?;
-    Ok(())
-}
+        params![username, hashed, role, homeowner_id],)
+        .context("Failed to insert user")?;
 
-// Register a new guest account linked to a specific homeowner ID.
-// This avoids username conflicts and ensures strong foreign key integrity.
-pub fn add_guest(
-    conn: &mut Connection,
-    homeowner_id: i64,
-    guest_username: &str,
-    guest_hashed_pin: &str) -> Result<()> {
-    // Verify that homeowner_id actually belongs to a homeowner
-    let role: Option<String> = conn
-        .query_row(
-            "SELECT user_status FROM users WHERE id = ?1",
-            params![homeowner_id],
-            |r| r.get(0),
-        )
-        .optional()
-        .context("Failed to verify homeowner ID")?;
+        tx.commit().context("Failed to commit transaction")?;
 
-    match role.as_deref() {
-        Some("homeowner") => {
-            insert_user(conn, guest_username, guest_hashed_pin, "guest", Some(homeowner_id))
-                .context("Failed to add guest under homeowner")
-        }
-        Some(other) => anyhow::bail!("User ID {} is not a homeowner (role: {})", homeowner_id, other),
-        None => anyhow::bail!("Homeowner ID {} not found", homeowner_id),
-    }
-}
-
-
-// Delete a guest account belonging to a specific homeowner.
-pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, guest_name: &str) -> Result<bool> {
-    let belongs: i64 = conn
-        .query_row(
-            "SELECT COUNT(*) FROM users
-             WHERE username = ?1
-             AND user_status = 'guest'
-             AND homeowner_id = ?2",
-            params![guest_name, homeowner_id],
-            |r| r.get(0),
-        )
-        .context("Failed to verify guest ownership")?;
-
-    if belongs == 0 {
-        return Ok(false);
-    }
-
-    conn.execute(
-        "DELETE FROM users
-         WHERE username = ?1
-         AND homeowner_id = ?2",
-        params![guest_name, homeowner_id],
-    )
-    .context("Failed to delete guest")?;
-
-    Ok(true)
-}
-
-
-// Log a successful or failed login attempt to the audit table.
-pub fn log_attempt(conn: &Connection, username: &str, success: bool) -> Result<()> {
-    let status = if success { "SUCCESS" } else { "FAILURE" };
-    let timestamp = Utc::now().to_rfc3339();
-
-    conn.execute(
-        "INSERT INTO security_log (username, status, timestamp)
-         VALUES (?1, ?2, ?3)",
-        params![username, status, timestamp],
-    )
-    .context("Failed to record login attempt")?;
+     let desc = format!("User '{}' created by '{}'", username, admin_username);
+    logger::log_event(&conn, "Admin", Some(&username), "ACCOUNT_CREATED", Some(&desc))?;
 
     Ok(())
 }
+
 
 pub fn show_own_profile(conn: &Connection, username: &str) -> Result<()> {
     let row = conn.query_row(
@@ -312,14 +341,16 @@ pub fn manage_user_status(conn: &mut Connection, admin_username: &str, current_r
         return Ok(());
     }
 
-    let logger_conn = logger::init_logger_db()?;
-
     // Verify admin identity
     println!("\nAdmin re-authentication required.");
     print!("Enter your password: ");
     io::stdout().flush().ok();
 
-    let password = read_password().unwrap_or_default().trim().to_string();
+    let admin_pw = {
+        let raw = read_password()?;
+        Zeroizing::new(raw.trim_end_matches(['\r', '\n']).to_string())
+    };
+
     let stored_hash: Option<String> = conn
         .query_row(
             "SELECT hashed_password FROM users WHERE username = ?1 COLLATE NOCASE",
@@ -328,18 +359,15 @@ pub fn manage_user_status(conn: &mut Connection, admin_username: &str, current_r
         )
         .optional()?;
 
-    if stored_hash
+    let ok = stored_hash
         .as_ref()
-        .map(|h| auth::verify_password(&password, h).unwrap_or(false))
-        != Some(true)
-    {
+        .map(|h| auth::verify_password(&admin_pw, h).unwrap_or(false))
+        .unwrap_or(false);
+
+    if !ok {
         println!("Authentication failed. Aborting.");
         return Ok(());
     }
-
-    // Clear password memory
-    let mut pw_clear = password;
-    pw_clear.zeroize();
 
     // List all users
     println!("\n===== User Management =====");
@@ -401,6 +429,6 @@ pub fn manage_user_status(conn: &mut Connection, admin_username: &str, current_r
     let event_type = if new_status == 1 { "ACCOUNT_ENABLED" } else { "ACCOUNT_DISABLED" };
     let desc = format!("User '{}' {} by Admin '{}'", target_username, action, admin_username);
 
-    logger::log_event(&logger_conn, admin_username, Some(&target_username), event_type, Some(&desc))?;
+    logger::log_event(&conn, admin_username, Some(&target_username), event_type, Some(&desc))?;
     Ok(())
 }
