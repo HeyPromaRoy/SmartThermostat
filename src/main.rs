@@ -20,20 +20,19 @@ fn main() -> Result<()> {
     // Show front page UI
     ui::front_page_ui();
 
-    // Main loop
+    // Main program loop
     loop {
         match prompt_input() {
             Some(choice) => match choice.trim() {
                 // === [1] USER LOGIN ===
                 "1" => {
                     ui::user_login_ui();
-                    match auth::login_user(&conn, &logger_conn) {
+                    match auth::login_user(&conn) {
                         Ok(Some((username, role))) => {
-                            // call menu.rs version of main_menu
-                            menu::main_menu(&mut conn, &logger_conn, &username, &role)?;
+                            // Proceed to role-based menu
+                            menu::main_menu(&mut conn, &username, &role)?;
                         }
                         Ok(None) => {
-                            println!("Invalid credentials or login canceled.");
                             ui::front_page_ui();
                         }
                         Err(e) => {
@@ -46,12 +45,11 @@ fn main() -> Result<()> {
                 // === [2] GUEST LOGIN ===
                 "2" => {
                     ui::user_login_ui();
-                    match guest::guest_login_user(&mut conn, &logger_conn) {
+                    match guest::guest_login_user(&mut conn) {
                         Ok(Some(username)) => {
-                            menu::main_menu(&mut conn, &logger_conn, &username, "guest")?;
+                            menu::main_menu(&mut conn, &username, "guest")?;
                         }
                         Ok(None) => {
-                            println!("Guest login failed or canceled.");
                             ui::front_page_ui();
                         }
                         Err(e) => {
