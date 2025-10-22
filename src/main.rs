@@ -58,7 +58,6 @@ fn main() -> Result<()> {
                         }
                     }
                 }
-
                 // === [3] ABOUT ===
                 "3" => {
                     ui::about_ui();
