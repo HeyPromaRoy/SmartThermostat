@@ -9,7 +9,7 @@ use crate::logger::{record_login_attempt, check_lockout, fake_verification_delay
 
 // Guest login using PIN authentication
 
-pub fn guest_login_user(conn: &mut Connection, logger_con: &Connection) -> Result<Option<String>> {
+pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
     // Prompt for username
     print!("Guest username: ");
     io::stdout().flush().ok();
@@ -570,4 +570,5 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, _homeowner_user
     }
 
     Ok(())
+
 }
