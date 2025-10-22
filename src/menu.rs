@@ -7,7 +7,7 @@ use crate::ui;
 use crate::auth;
 use crate::logger;
 use crate::db;
-//use crate::guest;
+use crate::guest;
 use crate::senser;
 
 use senser::{run_dashboard_inline, Thresholds};
@@ -305,4 +305,5 @@ fn manage_guests_menu(conn: &mut Connection, owner_id: i64, homeowner_username: 
 
     Ok(())
 }
+
 
