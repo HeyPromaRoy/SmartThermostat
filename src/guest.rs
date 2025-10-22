@@ -4,7 +4,10 @@ use std::io::{self, Write}; // reading inputs and printing prompts
 use zeroize::Zeroize; // used for sensitive data are wiped from the memory after use
 use rusqlite::{params, Connection, OptionalExtension}; // handle for executing SQL queries
 
-use crate::logger::{record_login_attempt, check_lockout, fake_verification_delay};
+use crate::logger;
+use crate::db;
+use crate::auth;
+use crate::ui;
 
 
 // Guest login using PIN authentication
@@ -23,7 +26,7 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
     }
 
     // Check lockout
-    if check_lockout(logger_con, &username)? {
+    if logger::check_lockout(conn, &username)? {
         return Ok(None);
     }
 
@@ -47,11 +50,12 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
         Some((stored_hash, is_active)) => {
             if is_active == 0 {
                 println!("This account has been disabled. Please contact your homeowner!");
-                record_login_attempt(conn, &username, false)?;
+                logger::record_login_attempt(conn, &username, false)?;
                 Ok(None)
             }
-            else if crate::auth::verify_password(&pin, &stored_hash)? {
-                record_login_attempt(logger_con, &username, true)?;
+            else if auth::verify_password(&pin, &stored_hash)? {
+                logger::fake_verification_delay();
+                logger::record_login_attempt(conn, &username, true)?;
 
                 // Update timestamps after successful login
                 conn.execute(
@@ -63,17 +67,19 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
                 )?;
 
                 println!("Welcome, {username}!");
+                let _session_token = db::update_session(conn, &username)?;
                 Ok(Some(username))
             } else {
-                record_login_attempt(logger_con, &username, false)?;
-                println!("Invalid PIN.");
+                logger::fake_verification_delay();
+                logger::record_login_attempt(conn, &username, false)?;
+                println!("Invalid username or password.");
                 Ok(None)
             }
         }
         None => {
-            fake_verification_delay();
-            record_login_attempt(logger_con, &username, false)?;
-            println!("Guest not found.");
+            logger::fake_verification_delay();
+            logger::record_login_attempt(conn, &username, false)?;
+            println!("Invalid username or password.");
             Ok(None)
         }
     };
@@ -86,7 +92,7 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
 }
 
 // Enables a guest account belonging to the homeowner
-pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, _homeowner_username: &str) -> Result<()> {
+pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
     //Ensure homeowner is valid and active (sanity check)
     // This prevents enabling guests if the homeowner account itself was disabled
     let homeowner_active: i64 = conn.query_row(
@@ -184,6 +190,7 @@ pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, _homeowner_usernam
 
     if affected > 0 { //provide feedback
         println!("Guest '{}' has been enabled successfully.", guest_username);
+        logger::log_event(conn, homeowner_username, Some(&guest_username), "ACCOUNT_ENABLED", Some("Homeowner enabled guest account"))?;
     } else {
         println!("Failed to enable guest '{}'.", guest_username);
     }
@@ -289,7 +296,7 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
     let auth_success = match stored_hash_opt {
         Some(stored_hash) => crate::auth::verify_password(&password, &stored_hash)?,
         None => {
-            fake_verification_delay();
+            logger::fake_verification_delay();
             false
         }
     };
@@ -315,6 +322,7 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
     // handle result
     if affected > 0 {
     println!("Guest '{}' has been disabled successfully.", guest_username);
+    logger::log_event(conn, homeowner_username, Some(&guest_username), "ACCOUNT_ENABLED", Some("Homeowner disabled guest account"))?;
     } else {
     println!("Failed to disable guest '{}'.", guest_username);
     }
@@ -324,7 +332,7 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
 
 
 // delete guest (ensures the guest belongs to homeowner)
-pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, _homeowner_username: &str) -> Result<()> {
+pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
     //List all guests for this homeowner
     let mut stmt = conn.prepare(
         "SELECT username, is_active, created_at, last_login_time
@@ -401,7 +409,7 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, _homeowner_usernam
     let auth_success = match stored_hash_opt {
         Some(stored_hash) => crate::auth::verify_password(&password, &stored_hash)?,
         None => {
-            fake_verification_delay();
+            logger::fake_verification_delay();
             false
         }
     };
@@ -427,9 +435,10 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, _homeowner_usernam
     )?;
     tx.commit()?;
 
-    // 🔹 Step 6: Report and log result
+    // Report and log result
     if affected > 0 {
         println!("Guest '{}' has been deleted successfully.", guest_username);
+        logger::log_event(conn, homeowner_username, Some(&guest_username), "ACCOUNT_DELETED", Some("Homeowner dleted guest account"))?;
     } else {
         println!("Failed to delete guest '{}'.", guest_username);
     }
@@ -438,8 +447,8 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, _homeowner_usernam
 }
 
 
-pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, _homeowner_username: &str) -> Result<()> {
-    // List all guests owned by this homeowner
+pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
+    //List all guests owned by this homeowner
     let mut stmt = conn.prepare(
         "SELECT username, is_active, created_at, last_login_time
          FROM users
@@ -465,7 +474,7 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, _homeowner_user
     }
 
     // Display guests neatly
-    println!("\n👥 Guests under your account:");
+    println!("\nGuests under your account:");
     for (i, (username, active, created_at, last_login)) in guests.iter().enumerate() {
         let status = if *active == 1 { "Active" } else { "Disabled" };
         println!(
@@ -488,7 +497,7 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, _homeowner_user
     let (guest_username, active) = match choice.and_then(|n| guests.get(n - 1)) {
         Some((uname, active, _, _)) => (uname.clone(), *active),
         None => {
-            println!("⚠️ Invalid selection.");
+            println!("Invalid selection.");
             return Ok(());
         }
     };
@@ -518,7 +527,7 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, _homeowner_user
     let auth_success = match stored_hash_opt {
         Some(stored_hash) => crate::auth::verify_password(&password, &stored_hash)?,
         None => {
-            fake_verification_delay();
+            logger::fake_verification_delay();
             false
         }
     };
@@ -565,10 +574,72 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, _homeowner_user
     // Confirm 
     if affected > 0 {
         println!("PIN for '{}' has been successfully reset!", guest_username);
+        logger::log_event(conn, homeowner_username, Some(&guest_username), "PASSWORD_CHANGE", None)?;
     } else {
         println!("Failed to reset PIN for '{}'.", guest_username);
     }
 
     Ok(())
-
 }
+
+
+pub fn manage_guests_menu(conn: &mut Connection, owner_id: i64, homeowner_username: &str) -> Result<()> {
+    loop {
+        ui::manage_guest_menu();
+
+        let mut choice = String::new();
+        std::io::stdin().read_line(&mut choice)?;
+        let choice = choice.trim();
+
+        match choice {
+            "1" => {
+                println!("\n======= Reset Guest PIN =======");
+                if let Err(e) = reset_guest_pin(conn, owner_id, homeowner_username) {
+                    println!("Error: {}", e);
+                }
+            }
+            "2" => {
+                println!("\n======= Enable/Disable Guest =======");
+                println!("[1] Enable Guest");
+                println!("[2] Disable Guest");
+                print!("Select an option [1-2]: ");
+                std::io::stdout().flush().ok();
+
+                let mut sub_choice = String::new();
+                std::io::stdin().read_line(&mut sub_choice).ok();
+                let sub_choice = sub_choice.trim();
+
+                match sub_choice {
+                    "1" => {
+                        if let Err(e) = enable_guest(conn, owner_id, homeowner_username) {
+                            println!("Error: {}", e);
+                        }
+                    }
+                    "2" => {
+                        if let Err(e) = disable_guest(conn, owner_id, homeowner_username) {
+                            println!("Error: {}", e);
+                        }
+                    }
+                    _ => println!("Invalid sub-option."),
+                }
+            }
+            "3" => {println!("\n======= Delete Guest =======");
+        if let Err(e) = delete_guest(conn, owner_id, homeowner_username) {
+            println!("Error: {}", e);
+        }
+    }
+            "4" => {
+                println!("Returning to Homeowner Menu...");
+                break;
+            }
+            _ => println!("Invalid choice, please enter 1–3."),
+        }
+
+        println!("\nPress ENTER to continue...");
+        let mut dummy = String::new();
+        std::io::stdin().read_line(&mut dummy).ok();
+    }
+
+    Ok(())
+}
+
