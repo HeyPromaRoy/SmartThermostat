@@ -7,14 +7,16 @@ authors = ["Tahsinur Rahman", "Hsiao-Yin Peng", "Proma Roy", "Md Ariful Islam Fa
 [dependencies]
 anyhow = "1.0"
 argon2 = { version = "0.5", features = ["std"] }
-colored = "2.1"
+colored = "3.0"
 chrono = "0.4"
 chrono-tz = "0.10.4"
+lazy_static = "1"
 rand = "0.8"
 regex = "1.10"
 reqwest = { version = "0.12", features = ["json"] }
 rpassword = "7.0"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.37", features = ["bundled"] }
 serde = { version = "1.0", features = ["derive"] }
 tokio = { version = "1.48", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
 zeroize = "1.5"
