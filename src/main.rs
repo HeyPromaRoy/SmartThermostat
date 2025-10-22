@@ -6,6 +6,7 @@ mod weather;
 mod logger;
 mod menu;
 mod senser;
+// test
 
 use rusqlite::Connection;
 use anyhow::Result;
