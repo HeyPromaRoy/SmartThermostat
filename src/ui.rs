@@ -196,3 +196,28 @@ pub fn about_ui() {
     println!("{}{}", pad, bar.color(border_color));
     println!();
 }
+
+pub fn manage_guest_menu() {
+
+    let bar_color = Color::Magenta;
+    let title_color = Color::BrightYellow;
+    let text_color = Color::White;
+
+    let menu_bar = "==============================================";
+    let spacing1 = "       ";
+    let spacing2 = "        ";
+
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    println!("{}{}", spacing1, "           GUEST MANAGEMENT MENU".bold().color(title_color));
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    
+    println!("{}{}", spacing2, "[1] Reset Guest Pin".color(text_color));
+    println!("{}{}", spacing2, "[2] Enable/Disable Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[3] Delete Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
+
+    println!();
+    print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
+
+}
+
