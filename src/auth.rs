@@ -3,15 +3,21 @@ use argon2::{
     password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
     Argon2,
 }; //Argon2 hashing algorithm for hashing and verification
+use lazy_static::lazy_static;
 use regex::Regex; // validating user inputs like usernames and passwords
 use rpassword::read_password; // hidden password entry for CLI
-use std::io::{self, Write}; // reading inputs and printing prompts
-use zeroize::Zeroize; // used for sensitive data are wiped from the memory after use
+use std::{sync::{Arc, Mutex}, io::{self, Write}}; // reading inputs and printing prompts
+use zeroize::{Zeroize, Zeroizing}; // used for sensitive data are wiped from the memory after use
 use rusqlite::{params, Connection, OptionalExtension}; // handle for executing SQL queries
 
-use crate::db::{get_user_id_and_role, user_exists};
-use crate::logger::{init_logger_db, record_login_attempt, check_lockout, log_event, fake_verification_delay};
+use crate::db;
+use crate::logger;
 
+
+lazy_static! {
+    // One active session per running instance (CLI process)
+    pub static ref ACTIVE_SESSION: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+}
 /*------------------------ Registration---------------------*/
 
 /// Register a new account with role-based access control.
@@ -20,7 +26,7 @@ use crate::logger::{init_logger_db, record_login_attempt, check_lockout, log_eve
 /// Guests cannot register anyone.
 pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -> Result<()> {
     // Identify acting user and role
-    let (acting_username, acting_role) = match acting_user {
+    let (acting_username, _) = match acting_user {
         Some((u, r)) => (u, r),
         None => {
             println!("Anonymous or guest context — registration not permitted.");
@@ -28,15 +34,30 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         }
     };
 
-    // Permission enforcement
-    match acting_role {
+    // Read authoritative status from DB (role, is_active)
+    let (acting_role, is_active): (String, i64) = conn
+        .query_row(
+            "SELECT user_status, COALESCE(is_active,1) FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .map(|v| v)
+        .unwrap_or_else(|| ("guest".to_string(), 0));
+
+    if is_active != 1 {
+        println!("Acting account is disabled.");
+        return Ok(());
+    }
+
+    match acting_role.as_str() {
         "guest" => {
             println!("Guests cannot register new users.");
             return Ok(());
         }
-        "homeowner" | "technician" | "admin" => {} // allowed
+        "homeowner" | "technician" | "admin" => {}
         _ => {
-            println!("Invalid role '{acting_role}' — access denied.");
+            println!("Invalid acting role '{}'.", acting_role);
             return Ok(());
         }
     }
@@ -50,20 +71,21 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
     let username = username.trim();
+
     if !username_is_valid(username) {
         println!("Invalid username format.");
         return Ok(());
     }
-    if user_exists(conn, username)? {
+    if db::user_exists(conn, username)? {
         println!("Username '{}' already exists.", username);
         return Ok(());
     }
 
     // Determine the new user’s role based on who is creating it
-    let new_role = match acting_role {
+    let new_role = match acting_role.as_str() {
         "admin" => {
             // Admins can create any valid role type
-            print!("Enter role [homeowner | technician | guest]: ");
+            print!("Enter role [homeowner | technician]: ");
             io::stdout().flush().ok();
             let mut role_input = String::new();
             if io::stdin().read_line(&mut role_input).is_err() {
@@ -71,10 +93,12 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
                 return Ok(());
             }
             let r = role_input.trim().to_lowercase();
-            if r.is_empty() {
-                "guest".to_string()
-            } else {
-                r
+           match r.as_str() {
+            "homeowner" | "technician" => r, // allowed roles
+            _ => {
+                println!("Invalid role. Admins can only create homeowners or technicians.");
+                return Ok(()); // stop registration here
+                }
             }
         }
         "technician" | "homeowner" => {
@@ -95,12 +119,12 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
 
     print!("Enter {credential_label}: ");
     io::stdout().flush().ok();
-    let mut password = String::new();
-    if io::stdin().read_line(&mut password).is_err() {
-        println!("Failed to read {credential_label}.");
-        return Ok(());
-    }
-    let password = password.trim().to_string();
+    let password = {
+        let raw = read_password()?;
+        Zeroizing::new(raw.trim_end_matches(['\r', '\n']).to_string())
+    };
+
+
 
     if password.is_empty() {
         println!("{credential_label} cannot be empty.");
@@ -114,8 +138,15 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
 
+        // Hard cap to prevent resource abuse (e.g., extremely long inputs)
+    const MAX_SECRET_LEN: usize = 128;
+    if password.len() > MAX_SECRET_LEN {
+        println!("{} too long (max {}).", credential_label, MAX_SECRET_LEN);
+        return Ok(());
+    }
+
     // If registering a guest, enforce PIN policy
-if new_role == "guest" {
+    if new_role == "guest" {
     // numeric-only, min 6 digits. Adjust MIN_PIN_LEN to taste.
     const MIN_PIN_LEN: usize = 6;
     if password.len() < MIN_PIN_LEN || !password.chars().all(|c| c.is_ascii_digit()) {
@@ -138,31 +169,29 @@ if new_role == "guest" {
     // Confirm password/PIN
     print!("Confirm {credential_label}: ");
     io::stdout().flush().ok();
-    let mut confirm = String::new();
-    if io::stdin().read_line(&mut confirm).is_err() {
-        println!("Failed to read confirmation input.");
-        return Ok(());
-    }
-    if confirm.trim() != password {
+    let confirm = {
+        let raw = read_password()?;
+        Zeroizing::new(raw.trim_end_matches(['\r', '\n']).to_string())
+    };
+
+    if confirm.as_str() != password.as_str() {
         println!("{credential_label}s do not match.");
-        let mut p = password;
-        p.zeroize();
+    // `password` and `confirm` are wiped on drop
         return Ok(());
     }
 
     // If a homeowner is creating a guest, link them via homeowner_id 
-    let homeowner_id_opt = if acting_role == "homeowner" {
-        if let Some((homeowner_username, _)) = acting_user {
-            match get_user_id_and_role(conn, homeowner_username)? {
-                Some((id, status)) if status == "homeowner" => Some(id),
-                _ => {
+    let homeowner_id_opt = if acting_role == "homeowner" && new_role == "guest" {
+        match db::get_user_id_and_role(conn, acting_username)? {
+            Some((id, status)) if status == "homeowner" => Some(id),
+            _ => {
                 println!("Acting user is not a valid homeowner.");
                 return Ok(());
             }
         }
-    } else { None }
-} else { None };
-
+    } else {
+        None
+    };
     // Hash and insert
     let hashed = match hash_password(&password) {
         Ok(h) => h,
@@ -174,14 +203,8 @@ if new_role == "guest" {
     let mut pw_clear = password;
     pw_clear.zeroize();
 
-    let tx = conn.transaction()?;
-    match tx.execute(
-        "INSERT INTO users (username, hashed_password, user_status, homeowner_id, updated_at)
-         VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-        params![username, hashed, new_role, homeowner_id_opt],
-    ) {
+    match db::insert_user(conn, &username, &acting_username, &hashed, &new_role, homeowner_id_opt) {
         Ok(_) => {
-            tx.commit()?;
             println!("Registered '{username}' as {new_role}");
         }
         Err(e) => {
@@ -300,103 +323,131 @@ fn role_is_valid(role: &str) -> bool {
 
 /*-------------------------------------LOGIN----------------------*/
 
-// Handle login for all user roles (admin, homeowner, technician, guest).
-pub fn login_user(conn: &Connection, logger_con: &Connection) -> Result<Option<(String, String)>> {
-    
-    let logger_conn = init_logger_db().context("Failed to initialize logger")?;
+pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
+    // 1) Single in-process session guard
+    let mut active = ACTIVE_SESSION
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
+    if let Some(ref current) = *active {
+        println!("User '{current}' is already logged in. Please log out first.");
+        return Ok(None);
+    }
 
-    // Prompt for username
+    // 2) Prompt username
     print!("Username: ");
-    io::stdout()
-        .flush()
-        .context("Failed to flush stdout while asking for username")?;
-
-    let mut username_input = String::new(); // buffer for username input
-    io::stdin()
-        .read_line(&mut username_input)
-        .context("Failed to read username input")?;
-
-    let username = username_input.trim().to_string(); // keep original case for storage
+    io::stdout().flush().ok();
+    let mut username_input = String::new();
+    io::stdin().read_line(&mut username_input)?;
+    let username = username_input.trim().to_string();
     if username.is_empty() {
-        eprintln!("Username is required.");
-        return Ok(None);
-    }
-// 
-    if check_lockout(logger_con, &username)? {
+        println!("Username cannot be empty.");
         return Ok(None);
     }
 
-    // Prompt for password 
+    // 3) Check lockout (generic handling inside)
+    if logger::check_lockout(conn, &username)? {
+        return Ok(None);
+    }
+
+    // 4) Prompt password (hidden) — strip only trailing CR/LF
     print!("Password: ");
-    io::stdout()
-        .flush()
-        .context("Failed to flush stdout while asking for password")?;
+    io::stdout().flush().ok();
+    let pw_in = Zeroizing::new(read_password()?);
+    let password = pw_in.trim_end_matches(['\r', '\n']); // &str view; buffer wiped on drop
 
-    let mut password = read_password().context("Failed to read password input")?;
-    let password = password.trim().to_string();
-
-    // Fetch stored hash and role (case-insensitive username lookup)
+    // 5) Fetch stored hash + role + active flag
     let row = conn
         .query_row(
-            "SELECT hashed_password, user_status, is_active FROM users WHERE username = ?1 COLLATE NOCASE",
+            "SELECT hashed_password, user_status, is_active
+             FROM users WHERE username = ?1 COLLATE NOCASE",
             params![username],
-            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1), r.get::<_, i64>(2)?)),
+            |r| Ok((
+                r.get::<_, String>(0)?, // hash
+                r.get::<_, String>(1)?, // role
+                r.get::<_, i64>(2)?,    // is_active
+            )),
         )
         .optional()?;
 
-    match row {
-        Some((stored_hash, role_raw, is_active)) => {
+    // Constant-time-ish behavior for unknown users
+    let fake_hash = "$argon2id$v=19$m=65536,t=3,p=1$ABCdef123Q$hR2eWkj4jvIY6MfGfQ/fZg";
+    if row.is_none() {
+        let _ = verify_password(password, fake_hash);
+        logger::fake_verification_delay();
+        logger::record_login_attempt(conn, &username, false)?;
+        println!("Invalid username or password.");
+        return Ok(None);
+    }
 
-            if is_active != 1 {
-                println!("Account {} is currently disabled. Please contact administrator.", username);
+    let (stored_hash, role, is_active) =
+        row.ok_or_else(|| anyhow::anyhow!("Missing user record after fetch"))?;
 
-                log_event(&logger_conn, &username, Some(&username), "ACCOUNT_DISABLED", Some("Login blocked"),)?;
-                return Ok(None);
-            }
-            let ok = verify_password(&password, &stored_hash)?;
-            let mut p = password;
-            p.zeroize();
+    // 6) Verify password FIRST (avoid status-based enumeration)
+    if !verify_password(password, &stored_hash)? {
+        logger::fake_verification_delay();
+        logger::record_login_attempt(conn, &username, false)?;
+        println!("Invalid username or password.");
+        return Ok(None);
+    }
 
-            if ok {
-                // Record successful login
-                record_login_attempt(&logger_conn, &username, true)?;
-                let role = role_raw?.trim().to_lowercase(); // normalize role for logic
 
-                // Update last login timestamp
-                conn.execute(
-                    "UPDATE users 
-                     SET last_login_time = datetime('now'), 
-                         updated_at = datetime('now') 
-                     WHERE username = ?1 COLLATE NOCASE",
-                    params![username],
-                )?;
+    if is_active != 1 {
+        println!("Account disabled. Please contact administrator.");
+        let _ = logger::log_event(
+            conn,
+            &username,
+            Some(&username),
+            "ACCOUNT_DISABLED",
+            Some("Blocked login on disabled account"),
+        );
+        return Ok(None);
+    }
 
-                // Friendly role-based message
-                match role.as_str() {
-                    "admin" => println!("🔧 Welcome, Admin! Accessing control panel..."),
-                    "homeowner" => println!("🏠 Welcome home, {username}!"),
-                    "technician" => println!("🧰 Welcome, {username}!"),
-                    "guest" => println!("👋 Welcome, {username}!"),
-                    _ => println!("Unknown role! Please contact an administrator!"),
+    // check if already logged in elsewhere
+    if let Some((_, exp_opt, active_flag)) = conn
+        .query_row(
+            "SELECT session_token, session_expires, is_active
+               FROM session_state WHERE username = ?1 COLLATE NOCASE",
+            params![username],
+            |r| Ok((
+                r.get::<_, Option<String>>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, i64>(2)?,
+            )),
+        )
+        .optional()?
+    {
+        if active_flag == 1 {
+            if let Some(exp) = exp_opt {
+                if let Ok(exp_time) =
+                    chrono::NaiveDateTime::parse_from_str(&exp, "%Y-%m-%d %H:%M:%S")
+                {
+                    if chrono::Utc::now().naive_utc() < exp_time {
+                        // generic to user; log the real reason
+                        println!("Login failed. Please try again.");
+                        let _ = logger::log_event(
+                            conn,
+                            &username,
+                            Some(&username),
+                            "SESSION_LOCKOUT",
+                            Some("Concurrent active session"),
+                        );
+                        return Ok(None);
+                    }
                 }
-
-                return Ok(Some((username, role)));
-            } else {
-                // Record failed login
-                record_login_attempt(&logger_conn, &username, false)?;
-                Ok(None)
             }
-        }
-
-        None => {
-            // No such user - simulate delay to prevent timing attacks
-            fake_verification_delay();
-            record_login_attempt(&logger_conn, &username, false)?;
-            let mut p = password;
-            p.zeroize();
-            Ok(None)
         }
     }
+
+    // 9) Success: record, update DB session, set in-memory guard
+    logger::record_login_attempt(conn, &username, true)?;
+    let _session_token = db::update_session(conn, &username)?; // kept for DB session state; not returned here
+
+    // reflect session in this process
+    *active = Some(username.clone());
+    drop(active); // release lock
+
+    Ok(Some((username, role)))
 }
 
 // Verify a password against a stored PHC hash
@@ -406,3 +457,36 @@ pub fn verify_password(password: &str, stored_hash: &str) -> Result<bool> {
     Ok(hasher.verify_password(password.as_bytes(), &parsed).is_ok()) // return true if verified
 }
 
+pub fn logout_user(conn: &Connection) -> Result<()> {
+    // Check active session in memory
+    let mut active_guard = ACTIVE_SESSION
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
+
+    let username = match &*active_guard {
+        Some(u) => u.clone(),
+        None => {
+            println!("No user is currently logged in.");
+            return Ok(());
+        }
+    };
+
+    //End the session in DB
+    if let Err(e) = db::end_session(conn, &username) {
+        eprintln!("Warning: failed to end DB session: {e}");
+    }
+
+    // Log the logout event
+    if let Err(e) = logger::log_event(conn, &username, Some(&username), "LOGOUT", Some("User logged out")) {
+        eprintln!("Warning: failed to record logout event: {e}");
+    }
+
+
+    //Clear memory safely
+    (*active_guard).take(); // sets ACTIVE_SESSION = None
+    drop(active_guard);     // release lock
+
+    println!("User '{}' logged out successfully.", username);
+
+    Ok(())
+}
