@@ -13,13 +13,10 @@ use std::io::{self, Write};
 
 fn main() -> Result<()> {
     // Initialize main database
-    let mut conn = Connection::open("users.db")
-        .expect("Failed to open or create database file.");
-    db::init_user_db(&conn).expect("Failed to initialize database schema.");
+    let mut conn = db::get_connection().expect("Failed to initialize system database.");
 
-    // Initialize logger
-    let mut logger_conn = logger::init_logger_db().expect("Failed to initialize logger database.");
-
+    // Show front page UI
+    ui::front_page_ui();
     // Show front page UI
     ui::front_page_ui();
 
