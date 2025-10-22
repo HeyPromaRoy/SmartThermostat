@@ -15,7 +15,7 @@ use senser::{run_dashboard_inline, Thresholds};
 /// ===============================================================
 /// MAIN MENU DISPATCHER
 /// ===============================================================
-pub fn main_menu(conn: &mut Connection, logger_conn: &Connection, username: &str, role: &str) -> Result<()> {
+pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()> {
     loop {
         match role {
             "homeowner" => {
@@ -38,7 +38,7 @@ pub fn main_menu(conn: &mut Connection, logger_conn: &Connection, username: &str
             }
             "admin" => {
                 ui::admin_ui();
-                if !admin_menu(conn, logger_conn, username, role)? {
+                if !admin_menu(conn, username, role)? {
                     break;
                 }
             }
@@ -91,7 +91,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
 //
 // ========================== ADMIN MENU ==========================
 //
-fn admin_menu(conn: &mut Connection, logger_conn: &Connection, username: &str, role: &str) -> Result<bool> {
+fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
     match prompt_input() {
         Some(choice) => match choice.trim() {
             "1" => db::show_own_profile(conn, username)? ,
@@ -109,7 +109,7 @@ fn admin_menu(conn: &mut Connection, logger_conn: &Connection, username: &str, r
             
             "6" => {
                 println!("📜 Viewing security logs...");
-                logger::view_security_log(logger_conn, username, role)?;
+                logger::view_security_log(conn, username, role)?;
             },
             "7" => {
                 println!("🧹 Checking current lockouts...");
@@ -305,5 +305,6 @@ fn manage_guests_menu(conn: &mut Connection, owner_id: i64, homeowner_username: 
 
     Ok(())
 }
+
 
 
