@@ -200,3 +200,25 @@ pub fn show_weather_logs() -> Result<()> {
     println!("──────────────────────────────────────────────\n");
     Ok(())
 }
+
+pub async fn get_current_weather() -> Result<()> {
+    // Get lastest weather data from NOAA
+    let rec = fetch_weather().await?;
+
+    // Display data
+    println!(
+    "🌡 Temp: {}°F ({:.1}°C)\n | 💧 Dew: {}°F ({:.1}°C)\n | 💦 Humidity: {}% | 💨 Wind: {} mph ({}) | 🌥 {}\n",
+    rec.temperature_f.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.temperature_c.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.dewpoint_f.map(|v| format!("{:.0}", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.dewpoint_c.map(|v| format!("{:.1}", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.humidity.map(|v| format!("{:.0}°", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.wind_speed_mph.map(|v| format!("{:.0}°", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.wind_direction_deg.map(|v| format!("{:.0}°", v)).unwrap_or_else(|| "N/A".to_string()),
+    rec.condition);
+
+    // Store to database
+    store_weather(&rec)?;
+
+    Ok(())
+}
