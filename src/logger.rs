@@ -10,8 +10,6 @@ const MAX_ATTEMPTS: usize = 5;          // Max failed attempts before lockout
 const LOCKOUT_SECONDS_BASE: i64 = 30;   // Initial lockout (30s)
 const MAX_LOCKOUT_SECONDS: i64 = 300;   // Max lockout cap (5 minutes)
 
-
-
 // Current timestamp in Eastern Time (EST/EDT)
 fn now_est() -> DateTime<chrono_tz::Tz> {
     New_York.from_utc_datetime(&Utc::now().naive_utc())
@@ -23,52 +21,6 @@ pub fn fake_verification_delay() {
     thread::sleep(StdDuration::from_millis(delay_ms));
 }
 
-// ------------------ DATABASE SETUP ------------------
-
-// Initialize logger database
-pub fn init_logger_db() -> Result<Connection> {
-    let conn = Connection::open("logger.db").context("Failed to open logger.db")?;
-
-    conn.execute_batch(
-        r#"
-        PRAGMA journal_mode = WAL;
-        PRAGMA synchronous = FULL;
-        PRAGMA foreign_keys = ON;
-        PRAGMA secure_delete = ON;
-
-        CREATE TABLE IF NOT EXISTS security_log (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            actor_username TEXT NOT NULL,
-            target_username TEXT NOT NULL,
-            event_type TEXT NOT NULL CHECK(
-                event_type IN (
-                    'SUCCESS',
-                    'FAILURE',
-                    'LOCKOUT',
-                    'LOCKOUT_CLEARED',
-                    'ACCOUNT_DISABLED',
-                    'ACCOUNT_ENABLED',
-                    'ADMIN_LOGIN',
-                    'PASSWORD_CHANGE'
-                )
-            ),
-            description TEXT,
-            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS lockouts (
-            username TEXT PRIMARY KEY COLLATE NOCASE,
-            locked_until TEXT NOT NULL,
-            lock_count INTEGER DEFAULT 1
-        );
-
-        CREATE INDEX IF NOT EXISTS ix_security_log_target ON security_log(target_username);
-        CREATE INDEX IF NOT EXISTS ix_security_log_actor ON security_log(actor_username);
-        "#,
-    )?;
-
-    Ok(conn)
-}
 
 // ------------------ LOGGING ------------------
 // Log event to both DB and file
@@ -90,11 +42,7 @@ pub fn log_event(conn: &Connection, actor_username: &str, target_username: Optio
     writeln!(
         file,
         "{} | actor={} | target={} | event={} | desc={}",
-        timestamp,
-        actor_username,
-        target_username.unwrap_or("-"),
-        event_type,
-        description.unwrap_or("-")
+        timestamp, actor_username, target_username.unwrap_or("-"), event_type, description.unwrap_or("-")
     )?;
     Ok(())
 }
@@ -134,24 +82,33 @@ pub fn check_lockout(conn: &Connection, username: &str) -> Result<bool> {
 // Record success/failure and apply lockouts automatically
 pub fn record_login_attempt(conn: &Connection, actor_username: &str, success: bool) -> Result<()> {
     if success {
-        log_event(conn, actor_username, Some(actor_username), "SUCCESS", None)?;
+        log_event(conn, actor_username, Some(actor_username), "SUCCESS_LOGIN", None)?;
 
+         // Update last_login_time and updated_at
+        conn.execute(
+            "UPDATE users 
+             SET last_login_time = datetime('now'), updated_at = datetime('now')
+             WHERE username = ?1 COLLATE NOCASE",
+            params![actor_username],
+        )?;
+
+        // Clear any lockout state for this user
         conn.execute("DELETE FROM lockouts WHERE username = ?1", params![actor_username])?;
         return Ok(());
     }
 
     // Failed attempt
-    log_event(conn, actor_username, Some(actor_username), "FAILURE", None)?;
+    log_event(conn, actor_username, Some(actor_username), "FAILURE_LOGIN", None)?;
 
    let recent_failures: i64 = conn.query_row(
         r#"
         SELECT COUNT(*) FROM security_log
         WHERE actor_username = ?1
-          AND event_type = 'FAILURE'
+          AND event_type = 'FAILURE_LOGIN'
           AND timestamp > IFNULL((
                 SELECT MAX(timestamp)
                 FROM security_log
-                WHERE actor_username = ?1 AND event_type = 'SUCCESS'
+                WHERE actor_username = ?1 AND event_type = 'SUCCESS_LOGIN'
           ), '1970-01-01T00:00:00Z')
           AND timestamp > datetime('now', '-5 minutes')
         "#,
@@ -285,7 +242,7 @@ pub fn clear_lockout(conn: &Connection, current_admin: &str, username: Option<&s
     Ok(())
 }
 
-pub fn view_security_log(logger_conn: &Connection, admin_username: &str, current_role: &str) -> Result<()> {
+pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role: &str) -> Result<()> {
     // Ensure admin privileges
     if current_role != "admin" {
         println!("Access denied: Only administrators can view the security log.");
@@ -293,7 +250,7 @@ pub fn view_security_log(logger_conn: &Connection, admin_username: &str, current
     }
 
     // Verify the table exists first to avoid panics
-    let table_exists: bool = logger_conn
+    let table_exists: bool = conn
         .query_row(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='security_log'",
             [],
@@ -375,7 +332,7 @@ pub fn view_security_log(logger_conn: &Connection, admin_username: &str, current
 
     query.push_str(";");
 
-    let mut stmt = logger_conn.prepare(&query)?;
+    let mut stmt = conn.prepare(&query)?;
 
     // Dynamically build SQL parameters (safe against SQL injection, no lifetimes)
     let mut params_boxed: Vec<Box<dyn ToSql>> = Vec::new();
