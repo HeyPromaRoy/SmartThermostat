@@ -77,9 +77,10 @@ pub fn front_page_ui() {
 
 pub fn user_login_ui() {
     let port_spc = " ".repeat(11);
-    let port_bar = "=".repeat(46);;
+    let port_bar = "=".repeat(46);
+    let spacing = " ".repeat(10);
     println!("{}{}", port_spc, port_bar.color(Color::BrightGreen));
-    println!("{}{}", port_spc, "          BIG HOME LOGIN PORTAL".color(Color::BrightYellow));
+    println!("{}{}{}", port_spc, spacing ,"BIG HOME LOGIN PORTAL".color(Color::BrightYellow));
     println!("{}{}", port_spc, port_bar.color(Color::BrightGreen));
 }
 
@@ -108,11 +109,12 @@ pub fn homeowner_ui() {
 pub fn admin_ui() {
 let bar_color = Color::Red;
     let menu_bar = "=".repeat(48);
-    let spacing1 = "       ";
-    let spacing2 = "        ";
+    let menu_spc = " ".repeat(14);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(8);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}", spacing1, "              ADMIN MAIN MENU".bold().color(Color::BrightYellow));
+    println!("{}{}", spacing1, "ADMIN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] Show my profile  |  [5] View security logs".color(Color::White));
@@ -128,11 +130,12 @@ let bar_color = Color::Red;
 pub fn technician_ui(){
     let bar_color = Color::Red;
     let menu_bar = "=".repeat(46);
-    let spacing1 = "       ";
-    let spacing2 = "        ";
+    let spacing1 = " ".repeat(7);
+    let menu_spc = " ".repeat(11);
+    let spacing2 = " ".repeat(8);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}", spacing1, "           TECHNICIAN MAIN MENU".bold().color(Color::BrightYellow));
+    println!("{}{}{}", spacing1, menu_spc, "TECHNICIAN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] Show my profile  |  [5] Run diagnostics ".color(Color::White));
@@ -217,6 +220,6 @@ pub fn manage_guest_menu() {
     println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
 
     println!();
-    print!("{}", "Select an option [1-4]: ".bold().color(Color::Cyan));
+    print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
 
 }
