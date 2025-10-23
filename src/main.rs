@@ -2,18 +2,17 @@ mod ui;
 mod auth;
 mod guest;
 mod db;
-mod weather;
 mod logger;
 mod menu;
+mod weather;
 mod senser;
-// test
+mod function;
 
-use rusqlite::Connection;
 use anyhow::Result;
 use std::io::{self, Write};
 
 fn main() -> Result<()> {
-    // Initialize main database
+    // Initialize unified system database (users + logs + lockouts)
     let mut conn = db::get_connection().expect("Failed to initialize system database.");
 
     // Show front page UI
@@ -21,7 +20,7 @@ fn main() -> Result<()> {
 
     // Main program loop
     loop {
-        match prompt_input() {
+        match function::prompt_input() {
             Some(choice) => match choice.trim() {
                 // === [1] USER LOGIN ===
                 "1" => {
@@ -57,10 +56,11 @@ fn main() -> Result<()> {
                         }
                     }
                 }
+
                 // === [3] ABOUT ===
                 "3" => {
                     ui::about_ui();
-                    wait_for_enter();
+                    function::wait_for_enter();
                     ui::front_page_ui();
                 }
 
@@ -80,34 +80,4 @@ fn main() -> Result<()> {
     }
 
     Ok(())
-}
-
-// ===============================================================
-// Prompt user for input
-// ===============================================================
-pub fn prompt_input() -> Option<String> {
-    if io::stdout().flush().is_err() {
-        eprintln!("Error flushing stdout.");
-        return None;
-    }
-
-    let mut input = String::new();
-    match io::stdin().read_line(&mut input) {
-        Ok(0) => None, // EOF
-        Ok(_) => Some(input.trim().to_string()),
-        Err(e) => {
-            eprintln!("Error reading input: {e}");
-            None
-        }
-    }
-}
-
-// ===============================================================
-// Pause until user presses ENTER
-// ===============================================================
-fn wait_for_enter() {
-    print!("Press ENTER to continue...");
-    let _ = io::stdout().flush();
-    let mut buf = String::new();
-    let _ = io::stdin().read_line(&mut buf);
 }
