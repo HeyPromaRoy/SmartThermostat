@@ -76,8 +76,8 @@ pub fn front_page_ui() {
 }
 
 pub fn user_login_ui() {
-    let port_spc = "           ";
-    let port_bar = "=========================================";
+    let port_spc = " ".repeat(11);
+    let port_bar = "=".repeat(46);;
     println!("{}{}", port_spc, port_bar.color(Color::BrightGreen));
     println!("{}{}", port_spc, "          BIG HOME LOGIN PORTAL".color(Color::BrightYellow));
     println!("{}{}", port_spc, port_bar.color(Color::BrightGreen));
@@ -85,51 +85,29 @@ pub fn user_login_ui() {
 
 pub fn homeowner_ui() {
     let bar_color = Color::Magenta;
-    let menu_bar = "==============================================";
-    let menu_spc = "              ";
-    let spacing1 = "       ";
-    let spacing2 = "        ";
+    let menu_bar = "=".repeat(46);
+    let menu_spc = " ".repeat(14);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(8);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
     println!("{}{}{}", spacing1, menu_spc, "USER MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] Register a guest  |  [6] ".color(Color::White));
-    println!("{}{}", spacing2, "[2] View guest(s)     |  [7] ".color(Color::White));
-    println!("{}{}", spacing2, "[3] Manage Guests     |  [8] ".color(Color::White));
-    println!("{}{}", spacing2, "[4] View profile      |  [9] ".color(Color::White));
-    println!("{}{}", spacing2, "[5] Log out           |  [10] ".color(Color::White));
+    println!("{}{}", spacing2, "[1] View profile      |  [5] Indoor Sensing".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a guest  |  [6] Outdoor Weather".color(Color::White));
+    println!("{}{}", spacing2, "[3] View guest(s)     |  [7] ".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Guests     |  [8] ".color(Color::White));
+    println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
 
     println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [1-10]: ".bold().color(Color::Cyan));
-}
-
-
-pub fn guest_ui() {
-    let bar_color = Color::BrightBlue;
-    let menu_bar = "==============================================";
-    let spacing1 = "       ";
-    let spacing2 = "        ";
-
-    println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}", spacing1, "           GUEST MAIN MENU".bold().color(Color::BrightYellow));
-    println!("{}{}", spacing1, menu_bar.color(bar_color));
-
-    println!("{}{}", spacing2, "[1] View Profile     |  [6] ".color(Color::White));
-    println!("{}{}", spacing2, "[2] Indoor Sensor    |  [7] ".color(Color::White));
-    println!("{}{}", spacing2, "[3] Outdoor Weather  |  [8] ".color(Color::White));
-    println!("{}{}", spacing2, "[4] ???  |  [9] ".color(Color::White));
-    println!("{}{}", spacing2, "[5] Log out          |  [10] ".color(Color::White));
-
-    println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [1-10]: ".bold().color(Color::Cyan));
-    
+    print!("{}", "Select an option [0-8]: ".bold().color(Color::Cyan));
 }
 
 pub fn admin_ui() {
 let bar_color = Color::Red;
-    let menu_bar = "==============================================";
+    let menu_bar = "=".repeat(48);
     let spacing1 = "       ";
     let spacing2 = "        ";
 
@@ -137,19 +115,19 @@ let bar_color = Color::Red;
     println!("{}{}", spacing1, "              ADMIN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] Register a user  |  [6] View login logs".color(Color::White));
-    println!("{}{}", spacing2, "[2] View users(s)    |  [7] Clear user lockouts".color(Color::White));
-    println!("{}{}", spacing2, "[3] Manage users     |  [8] Indoor sensing".color(Color::White));
-    println!("{}{}", spacing2, "[4] Show my profile  |  [9] Outdoor weather".color(Color::White));
-    println!("{}{}", spacing2, "[5] Log out          |  [10] ".color(Color::White));
+    println!("{}{}", spacing2, "[1] Show my profile  |  [5] View security logs".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a user  |  [6] Clear user lockouts".color(Color::White));
+    println!("{}{}", spacing2, "[3] View user(s)     |  [7] Indoor sensing".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Users     |  [8] Outdoor weather".color(Color::White));
+    println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
 
     println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [1-10]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [0-8]: ".bold().color(Color::Cyan));
 }
 
 pub fn technician_ui(){
     let bar_color = Color::Red;
-    let menu_bar = "==============================================";
+    let menu_bar = "=".repeat(46);
     let spacing1 = "       ";
     let spacing2 = "        ";
 
@@ -157,16 +135,37 @@ pub fn technician_ui(){
     println!("{}{}", spacing1, "           TECHNICIAN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] Register a guest  |  [6] Run diagnostics ".color(Color::White));
-    println!("{}{}", spacing2, "[2] View guest(s)     |  [7] Test sensor data".color(Color::White));
-    println!("{}{}", spacing2, "[3] Manage Guests     |  [8] View system events".color(Color::White));
-    println!("{}{}", spacing2, "[4] Show my profile   |  [9] ".color(Color::White));
-    println!("{}{}", spacing2, "[5] Log out           |  [10] ".color(Color::White));
+    println!("{}{}", spacing2, "[1] Show my profile  |  [5] Run diagnostics ".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a guest |  [6] Test sensor data".color(Color::White));
+    println!("{}{}", spacing2, "[3] View guest(s)    |  [7] View system events".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage guest(s)  |  [8] ".color(Color::White));
+    println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
     println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [1-10]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [0-8]: ".bold().color(Color::Cyan));
 }
 
+pub fn guest_ui() {
+    let bar_color = Color::BrightBlue;
+    let menu_bar = "=".repeat(46);
+    let menu_spc = " ".repeat(23);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(20);
+
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    println!("{}{}", menu_spc, "GUEST MAIN MENU".bold().color(Color::BrightYellow));
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+
+    println!("{}{}", spacing2, "[1] View Profile".color(Color::White));
+    println!("{}{}", spacing2, "[2] Indoor Sensor".color(Color::White));
+    println!("{}{}", spacing2, "[3] Outdoor Weather".color(Color::White));
+    println!("{}{}", spacing2, "[4] HVAC Control".color(Color::White));
+    println!("{}{}", spacing2, "[0] Log out".color(Color::Red));
+
+    println!(); // add an extra blank line for readability
+    print!("{}", "Select an option [0-5]: ".bold().color(Color::Cyan));
+    
+}
 
 pub fn about_ui() {
     let border_color = Color::BrightBlue;
@@ -174,21 +173,21 @@ pub fn about_ui() {
     let label_color = Color::BrightCyan;
     let text_color = Color::White;
 
-    let bar = "==============================================";
-    let pad = "       ";
+    let bar = "=".repeat(56);
+    let pad = " ".repeat(7);
 
     println!("\n{}{}", pad, bar.color(border_color));
-    println!("{}{}", pad, "          BIG HOME THERMOSTAT SYSTEM".bold().color(title_color));
+    println!("{}{}", " ".repeat(22), "BIG HOME THERMOSTAT SYSTEM".bold().color(title_color));
     println!("{}{}", pad, bar.color(border_color));
     println!("{}{} {}", pad,
         "Developed by:".color(label_color).bold(),
         "Team ThermoRust".color(text_color));
     println!("{}{} {}", pad,
-        "Author(s):".color(label_color).bold(),
-        "Tahsinur Rahman, Hsiao-Yin Peng, Proma Roy, Md Ariful Islam Fahim".color(text_color)
-    );
-    println!("{}{} {}", pad, "  Version:".color(label_color).bold(), "1.0.0".color(text_color));
-    println!("{}{}", pad, "Description:".color(label_color).bold());
+        "   Author(s):".color(label_color).bold(),
+        "Tahsinur Rahman, Hsiao-Yin Peng,".color(text_color));
+    println!("{}{}{}", pad, " ".repeat(14), "Proma Roy, Md Ariful Islam Fahim".color(text_color));
+    println!("{}{} {}", pad, "     Version:".color(label_color).bold(), "1.0.0".color(text_color));
+    println!("{}{}", pad, " Description:".color(label_color).bold());
     println!("{}{}", pad, "   A smart home control system that manages users,".color(text_color));
     println!("{}{}", pad, "   guests, and integrates real-time weather updates".color(text_color));
     println!("{}{}", pad, "   using data from the NOAA API.".color(text_color));
@@ -203,12 +202,13 @@ pub fn manage_guest_menu() {
     let title_color = Color::BrightYellow;
     let text_color = Color::White;
 
-    let menu_bar = "==============================================";
-    let spacing1 = "       ";
-    let spacing2 = "        ";
+    let menu_bar = "=".repeat(46);
+    let menu_spc = " ".repeat(14);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(8);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}", spacing1, "           GUEST MANAGEMENT MENU".bold().color(title_color));
+    println!("{}{}{}", spacing1,  menu_spc, "GUEST MANAGEMENT MENU".bold().color(title_color));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
     
     println!("{}{}", spacing2, "[1] Reset Guest Pin".color(text_color));
@@ -217,7 +217,6 @@ pub fn manage_guest_menu() {
     println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
 
     println!();
-    print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [1-4]: ".bold().color(Color::Cyan));
 
 }
-
