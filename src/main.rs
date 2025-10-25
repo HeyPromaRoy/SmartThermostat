@@ -1,12 +1,5 @@
-mod ui;
-mod auth;
-mod guest;
-mod db;
-mod logger;
-mod menu;
-mod weather;
-mod senser;
-mod function;
+mod ui; mod auth; mod guest; mod db; mod logger; mod admin;
+mod menu; mod weather; mod senser; mod function;
 
 use anyhow::Result;
 use std::io::{self, Write};
@@ -45,6 +38,7 @@ fn main() -> Result<()> {
                     ui::user_login_ui();
                     match guest::guest_login_user(&mut conn) {
                         Ok(Some(username)) => {
+                            let username: String = username;
                             menu::main_menu(&mut conn, &username, "guest")?;
                         }
                         Ok(None) => {
