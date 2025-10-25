@@ -114,7 +114,7 @@ let bar_color = Color::Red;
     let spacing2 = " ".repeat(8);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}", spacing1, "ADMIN MAIN MENU".bold().color(Color::BrightYellow));
+    println!("{}{}{}", spacing1, menu_spc, "ADMIN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] Show my profile  |  [5] View security logs".color(Color::White));
