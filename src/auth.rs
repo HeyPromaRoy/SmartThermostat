@@ -14,16 +14,12 @@ use crate::db;
 use crate::logger;
 
 
-lazy_static! {
-    // One active session per running instance (CLI process)
-    pub static ref ACTIVE_SESSION: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
-}
 /*------------------------ Registration---------------------*/
 
-/// Register a new account with role-based access control.
-/// Admins can create any user type.
-/// Technicians and Homeowners can create *only Guests*.
-/// Guests cannot register anyone.
+/* Register a new account with role-based access control.
+  Admins can create any user type.
+  Technicians and Homeowners can create *only Guests*.
+  Guests cannot register anyone. */
 pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -> Result<()> {
     // Identify acting user and role
     let (acting_username, _) = match acting_user {
@@ -108,6 +104,11 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         _ => unreachable!(), // already validated above
     };
 
+    if new_role == "admin" {
+        println!("Creation of admin accounts is disabled");
+        return Ok(());
+        }
+
     // Validate role choice
     if !role_is_valid(&new_role) {
         println!("Invalid role type '{new_role}'.");
@@ -125,27 +126,14 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
     };
 
 
-
-    if password.is_empty() {
-        println!("{credential_label} cannot be empty.");
-        return Ok(());
-    }
-
-    // Enforce strong password (non-guests only)
-    if new_role != "guest" && !password_is_strong(&password, username) {
-        let mut p = password;
-        p.zeroize();
-        return Ok(());
-    }
-
-        // Hard cap to prevent resource abuse (e.g., extremely long inputs)
-    const MAX_SECRET_LEN: usize = 128;
+    // Hard cap to prevent resource abuse (e.g., extremely long inputs)
+    const MAX_SECRET_LEN: usize = 1024;
     if password.len() > MAX_SECRET_LEN {
         println!("{} too long (max {}).", credential_label, MAX_SECRET_LEN);
         return Ok(());
     }
 
-    // If registering a guest, enforce PIN policy
+        // If registering a guest, enforce PIN policy
     if new_role == "guest" {
     // numeric-only, min 6 digits. Adjust MIN_PIN_LEN to taste.
     const MIN_PIN_LEN: usize = 6;
@@ -166,6 +154,22 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
         return Ok(());
     }
 }
+
+
+    if password.is_empty() {
+        println!("{credential_label} cannot be empty.");
+        return Ok(());
+    }
+
+    // Enforce strong password (non-guests only)
+    if new_role != "guest" && !password_is_strong(&password, username) {
+        let mut p = password;
+        p.zeroize();
+        return Ok(());
+    }
+
+
+
     // Confirm password/PIN
     print!("Confirm {credential_label}: ");
     io::stdout().flush().ok();
@@ -321,19 +325,30 @@ fn role_is_valid(role: &str) -> bool {
     matches!(role, "homeowner" | "guest" | "technician")
 }
 
-/*-------------------------------------LOGIN----------------------*/
+
+
+// ===============================================================
+//                         LOGIN FUNCTIONS
+// ===============================================================
+
+lazy_static! {
+    // One active session per running instance (CLI process)
+    pub static ref ACTIVE_SESSION: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
+}
 
 pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
-    // 1) Single in-process session guard
+    // Single in-process session guard
+   { 
     let mut active = ACTIVE_SESSION
         .lock()
         .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
     if let Some(ref current) = *active {
         println!("User '{current}' is already logged in. Please log out first.");
         return Ok(None);
+        }
     }
 
-    // 2) Prompt username
+    // Prompt username
     print!("Username: ");
     io::stdout().flush().ok();
     let mut username_input = String::new();
@@ -349,13 +364,14 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         return Ok(None);
     }
 
-    // 4) Prompt password (hidden) — strip only trailing CR/LF
+
+    // Prompt password (hidden) — strip only trailing CR/LF
     print!("Password: ");
     io::stdout().flush().ok();
     let pw_in = Zeroizing::new(read_password()?);
     let password = pw_in.trim_end_matches(['\r', '\n']); // &str view; buffer wiped on drop
 
-    // 5) Fetch stored hash + role + active flag
+    // Fetch stored hash + role + active flag
     let row = conn
         .query_row(
             "SELECT hashed_password, user_status, is_active
@@ -382,7 +398,7 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
     let (stored_hash, role, is_active) =
         row.ok_or_else(|| anyhow::anyhow!("Missing user record after fetch"))?;
 
-    // 6) Verify password FIRST (avoid status-based enumeration)
+    // Verify password FIRST (avoid status-based enumeration)
     if !verify_password(password, &stored_hash)? {
         logger::fake_verification_delay();
         logger::record_login_attempt(conn, &username, false)?;
@@ -403,49 +419,46 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         return Ok(None);
     }
 
-    // check if already logged in elsewhere
-    if let Some((_, exp_opt, active_flag)) = conn
+        // cleanup of expired sessions
+    let _ = conn.execute(
+        "DELETE FROM session_state WHERE session_expires <= datetime('now')",
+        [],
+    );
+
+    // Deny concurrent login if a live session already exists
+    let has_live_session: Option<i64> = conn
         .query_row(
-            "SELECT session_token, session_expires, is_active
-               FROM session_state WHERE username = ?1 COLLATE NOCASE",
-            params![username],
-            |r| Ok((
-                r.get::<_, Option<String>>(0)?,
-                r.get::<_, Option<String>>(1)?,
-                r.get::<_, i64>(2)?,
-            )),
+            "SELECT 1 FROM session_state
+               WHERE username = ?1 COLLATE NOCASE
+                 AND session_expires > datetime('now')
+               LIMIT 1",
+            params![&username],
+            |r| r.get(0),
         )
-        .optional()?
-    {
-        if active_flag == 1 {
-            if let Some(exp) = exp_opt {
-                if let Ok(exp_time) =
-                    chrono::NaiveDateTime::parse_from_str(&exp, "%Y-%m-%d %H:%M:%S")
-                {
-                    if chrono::Utc::now().naive_utc() < exp_time {
-                        // generic to user; log the real reason
-                        println!("Login failed. Please try again.");
-                        let _ = logger::log_event(
-                            conn,
-                            &username,
-                            Some(&username),
-                            "SESSION_LOCKOUT",
-                            Some("Concurrent active session"),
-                        );
-                        return Ok(None);
-                    }
-                }
-            }
-        }
+        .optional()?;
+
+    if has_live_session.is_some() {
+        println!("Login failed. Please try again.");
+        let _ = logger::log_event(
+            conn,
+            &username,
+            Some(&username),
+            "SESSION_LOCKOUT",
+            Some("Concurrent active session"),
+        );
+        return Ok(None);
     }
 
-    // 9) Success: record, update DB session, set in-memory guard
+    // Success: record, create new session (stores only hash; returns plaintext token)
     logger::record_login_attempt(conn, &username, true)?;
-    let _session_token = db::update_session(conn, &username)?; // kept for DB session state; not returned here
+    let _session_token_plain = db::update_session(conn, &username)?; // do NOT persist
 
-    // reflect session in this process
+    // reflect session in this process (CLI)
+    let mut active = ACTIVE_SESSION
+    .lock()
+    .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
     *active = Some(username.clone());
-    drop(active); // release lock
+    drop(active);
 
     Ok(Some((username, role)))
 }
