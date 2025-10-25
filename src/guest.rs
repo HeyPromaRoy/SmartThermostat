@@ -11,7 +11,6 @@ use crate::ui;
 
 
 // Guest login using PIN authentication
-
 pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
     // Prompt for username
     print!("Guest username: ");
@@ -37,7 +36,7 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
     let pin = pin.trim().to_string();
 
     // Fetch stored hash for this guest user
-    let stored_hash_opt = conn
+    let row = conn
         .query_row(
             "SELECT hashed_password, is_active
              FROM users WHERE username = ?1 AND user_status = 'guest' COLLATE NOCASE",
@@ -46,49 +45,79 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
         )
         .optional()?;
 
-    let result = match stored_hash_opt {
-        Some((stored_hash, is_active)) => {
-            if is_active == 0 {
-                println!("This account has been disabled. Please contact your homeowner!");
-                logger::record_login_attempt(conn, &username, false)?;
-                Ok(None)
-            }
-            else if auth::verify_password(&pin, &stored_hash)? {
-                logger::fake_verification_delay();
-                logger::record_login_attempt(conn, &username, true)?;
-
-                // Update timestamps after successful login
-                conn.execute(
-                    "UPDATE users 
-                     SET last_login_time = datetime('now'), 
-                         updated_at = datetime('now') 
-                     WHERE username = ?1 COLLATE NOCASE",
-                    params![username],
-                )?;
-
-                println!("Welcome, {username}!");
-                let _session_token = db::update_session(conn, &username)?;
-                Ok(Some(username))
-            } else {
-                logger::fake_verification_delay();
-                logger::record_login_attempt(conn, &username, false)?;
-                println!("Invalid username or password.");
-                Ok(None)
-            }
-        }
+    let fake_hash = "$argon2id$v=19$m=65536,t=3,p=1$ABCdef123Q$hR2eWkj4jvIY6MfGfQ/fZg";
+    
+    let (stored_hash, is_active) = match row {
+        Some(pair) => pair,
         None => {
+            let _ = auth::verify_password(&pin, &fake_hash); // fake verify to normalize timing
             logger::fake_verification_delay();
             logger::record_login_attempt(conn, &username, false)?;
             println!("Invalid username or password.");
-            Ok(None)
+            return Ok(None);
         }
     };
 
-    // Securely zeroize PIN
-    let mut clear_pin = pin;
-    clear_pin.zeroize();
+    // Verify PIN
+    if !auth::verify_password(&pin, &stored_hash)? {
+        logger::fake_verification_delay();
+        logger::record_login_attempt(conn, &username, false)?;
+        println!("Invalid username or password.");
+        return Ok(None);
+    }
 
-    result
+    // Disabled account
+    if is_active == 0 {
+        println!("This account has been disabled. Please contact your homeowner!");
+        logger::record_login_attempt(conn, &username, false)?;
+        return Ok(None);
+    }
+
+    // cleanup of expired sessions
+    let _ = conn.execute(
+        "DELETE FROM session_state WHERE session_expires <= datetime('now')",
+        [],
+    );
+
+    // Deny concurrent login if a live session already exists
+    let has_live_session: Option<i64> = conn
+        .query_row(
+            "SELECT 1
+               FROM session_state
+              WHERE username = ?1 COLLATE NOCASE
+                AND session_expires > datetime('now')
+              LIMIT 1",
+            params![&username],
+            |r| r.get(0),
+        )
+        .optional()?;
+
+    if has_live_session.is_some() {
+        println!("Login failed. Please try again.");
+        let _ = logger::log_event(
+            conn,
+            &username,
+            Some(&username),
+            "SESSION_LOCKOUT",
+            Some("Concurrent active session"),
+        );
+        return Ok(None);
+    }
+
+    // Success: record login + create new session (stores only hash; returns plaintext token)
+    logger::record_login_attempt(conn, &username, true)?;
+    let _session_token_plain = db::update_session(conn, &username)?; // DO NOT persist
+
+    // Reflect the session in-process so logout_user can find it (CLI guard)
+    {
+        let mut guard = auth::ACTIVE_SESSION
+            .lock()
+            .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
+        *guard = Some(username.clone());
+    }
+
+    println!("Welcome, {username}!");
+    Ok(Some(username))
 }
 
 // Enables a guest account belonging to the homeowner
