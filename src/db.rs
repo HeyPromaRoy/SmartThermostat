@@ -1,8 +1,11 @@
 use anyhow::{Context, Result};
+use base64::{Engine, engine::general_purpose};
+use blake3;
 use chrono::{DateTime, Utc, NaiveDateTime};
 use chrono_tz::America::New_York;
 use rusqlite::{params, Connection, OptionalExtension};
 use rpassword::read_password;
+use rand::{RngCore, rngs::OsRng};
 use std::io::{self, Write};
 use uuid::Uuid;
 use zeroize::Zeroizing;
@@ -90,16 +93,15 @@ pub fn init_system_db() -> Result<Connection> {
         CREATE INDEX IF NOT EXISTS ix_lockouts_username ON lockouts(username);
         
         -- ===============================
-        -- SESSION STATE TABLE
+        --      SESSION STATE TABLE
         -- ===============================
         CREATE TABLE IF NOT EXISTS session_state (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             username TEXT NOT NULL UNIQUE COLLATE NOCASE,
-            session_token TEXT UNIQUE,
+            session_token_hash TEXT UNIQUE,
             login_time TEXT DEFAULT CURRENT_TIMESTAMP,
             last_active_time TEXT,
             session_expires TEXT,
-            is_active INTEGER DEFAULT 1 CHECK(is_active IN (0,1)),
             FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE
         );
         "#,
@@ -112,51 +114,6 @@ pub fn init_system_db() -> Result<Connection> {
 // Returns a reusable SQLite connection to the unified database.
 pub fn get_connection() -> Result<Connection> {
     init_system_db()
-}
-
-/*Creates or updates a user session in the `session_state` table.
-    - Marks old sessions as inactive
-    - Inserts a new session record with expiry 30 min from now
-    - Returns the session_token for in-memory tracking */
-pub fn update_session(conn: &Connection, username: &str) -> Result<String> {
-    let session_token = Uuid::new_v4().to_string();
-    let expires = Utc::now() + chrono::Duration::minutes(30);
-    let expires_str = expires.format("%Y-%m-%d %H:%M:%S").to_string();
-
-    // deactivate old sessions for this user
-    conn.execute(
-        "UPDATE session_state
-         SET is_active = 0, last_active_time = datetime('now')
-         WHERE username = ?1",
-        params![username],
-    )?;
-
-    // insert new session or update existing one
-    conn.execute(
-        "INSERT INTO session_state (username, session_token, login_time, session_expires, is_active)
-         VALUES (?1, ?2, datetime('now'), ?3, 1)
-         ON CONFLICT(username)
-         DO UPDATE SET 
-            session_token = excluded.session_token,
-            login_time = excluded.login_time,
-            session_expires = excluded.session_expires,
-            is_active = 1,
-            last_active_time = NULL",
-        params![username, session_token, expires_str],
-    )?;
-
-    Ok(session_token)
-}
-
-// Ends the active session of the user by marking it as inactive and records the last_active_time.
-pub fn end_session(conn: &Connection, username: &str) -> Result<()> {
-    conn.execute(
-        "UPDATE session_state
-         SET is_active = 0, last_active_time = datetime('now')
-         WHERE username = ?1 AND is_active = 1",
-        params![username],
-    )?;
-    Ok(())
 }
 
 // Check if a username already exists.
@@ -194,7 +151,7 @@ pub fn insert_user(conn: &mut Connection, username: &str, admin_username: &str ,
         tx.commit().context("Failed to commit transaction")?;
 
      let desc = format!("User '{}' created by '{}'", username, admin_username);
-    logger::log_event(&conn, "Admin", Some(&username), "ACCOUNT_CREATED", Some(&desc))?;
+    logger::log_event(conn, admin_username, Some(&username), "ACCOUNT_CREATED", Some(&desc))?;
 
     Ok(())
 }
@@ -257,8 +214,7 @@ pub fn list_guests_of_homeowner(conn: &Connection, homeowner_username: &str) -> 
         let guests = stmt
             .query_map(params![homeowner_id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })
-            .context("Failed to retrieve guest rows")?;
+            })?;
 
         println!("Guests for '{}':", homeowner_username);
         for g in guests {
@@ -429,6 +385,54 @@ pub fn manage_user_status(conn: &mut Connection, admin_username: &str, current_r
     let event_type = if new_status == 1 { "ACCOUNT_ENABLED" } else { "ACCOUNT_DISABLED" };
     let desc = format!("User '{}' {} by Admin '{}'", target_username, action, admin_username);
 
-    logger::log_event(&conn, admin_username, Some(&target_username), event_type, Some(&desc))?;
+    logger::log_event(conn, admin_username, Some(&target_username), event_type, Some(&desc))?;
+    Ok(())
+}
+
+
+// ======================================================
+//                          TOKEN
+// ======================================================
+
+fn new_session_token() -> (Zeroizing<String>, String) {
+    let mut buf = [0u8; 32];
+    OsRng.fill_bytes(&mut buf);
+
+    // Plain token returned to caller (for headers/cookies/in-memory)
+    let token_plain = Zeroizing::new(general_purpose::URL_SAFE_NO_PAD.encode(buf));
+
+    // Hash stored in DB (hex)
+    let token_hash_hex = blake3::hash(&buf).to_hex().to_string();
+    (token_plain, token_hash_hex)
+}
+
+/*Creates or updates a user session in the `session_state` table.
+    - Marks old sessions as inactive
+    - Inserts a new session record with expiry 30 min from now
+    - Returns the session_token for in-memory tracking */
+pub fn update_session(conn: &Connection, username: &str) -> Result<String> {
+    conn.execute(
+        "DELETE FROM session_state WHERE username = ?1",
+        params![username],
+    )?;
+
+    let (token_plain, token_hash_hex) = new_session_token();
+
+    let expires = Utc::now() + chrono::Duration::minutes(10);
+    let expires_str = expires.format("%Y-%m-%d %H:%M:%S").to_string();
+
+    conn.execute(
+        "INSERT INTO session_state (username, session_token_hash, login_time, session_expires)
+         VALUES (?1, ?2, datetime('now'), ?3)",
+        params![username, token_hash_hex, expires_str],
+    )?;
+
+    // Give the caller the plaintext token (not stored in DB)
+    Ok(token_plain.to_string())}
+
+// Delete the active session of the user
+pub fn end_session(conn: &Connection, username: &str) -> Result<()> {
+    conn.execute(
+        "DELETE FROM session_state WHERE username = ?1", params![username])?;
     Ok(())
 }
