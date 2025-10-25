@@ -671,4 +671,3 @@ pub fn manage_guests_menu(conn: &mut Connection, owner_id: i64, homeowner_userna
 
     Ok(())
 }
-
