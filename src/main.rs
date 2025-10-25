@@ -1,4 +1,4 @@
-mod ui; mod auth; mod guest; mod db; mod logger; mod admin;
+mod ui; mod auth; mod guest; mod db; mod logger;
 mod menu; mod weather; mod senser; mod function;
 
 use anyhow::Result;
