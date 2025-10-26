@@ -1,3 +1,11 @@
 2025-10-25T19:45:55.315641400-04:00 | actor=Tahsinur | target=Tahsinur | event=FAILURE_LOGIN | desc=-
 2025-10-25T19:46:22.516591700-04:00 | actor=Tahsinur | target=Tahsinur | event=FAILURE_LOGIN | desc=-
 2025-10-25T19:59:36.469903100-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T12:29:05.618940800-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T12:29:25.156773400-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T12:37:35.497613300-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T12:37:48.636326300-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T12:51:59.675686200-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T12:54:37.877482600-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-26T12:54:59.853873400-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T12:59:38.381569900-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
