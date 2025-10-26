@@ -139,9 +139,9 @@ pub fn technician_ui(){
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] Show my profile  |  [5] Run diagnostics ".color(Color::White));
-    println!("{}{}", spacing2, "[2] Register a guest |  [6] Test sensor data".color(Color::White));
-    println!("{}{}", spacing2, "[3] View guest(s)    |  [7] View system events".color(Color::White));
-    println!("{}{}", spacing2, "[4] Manage guest(s)  |  [8] ".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a guest |  [6] View system events".color(Color::White));
+    println!("{}{}", spacing2, "[3] View guest(s)    |  [7] Indoor sensing".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage guest(s)  |  [8] Outdoor weather".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
     println!(); // add an extra blank line for readability

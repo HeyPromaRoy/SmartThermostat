@@ -88,7 +88,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 hvac_control_menu(conn, username)?;
             },
             "7" => {
-            println!("Retrieving outdoor weather status...");
+                println!("Retrieving outdoor weather status...");
                 if let Err(e) = weather::get_current_weather() {
                     eprintln!("❌ Error: {:?}", e);
                 }
@@ -140,26 +140,26 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
                 wait_for_enter();
             }
             "6" => {
-            println!("Checking current lockouts...");
-            //show all locked accounts
-            logger::clear_lockout(conn, "admin", None)?;
+                println!("Checking current lockouts...");
+                //show all locked accounts
+                logger::clear_lockout(conn, "admin", None)?;
 
-        // ask admin if they want to clear a specific user
-        println!("\nEnter username to clear lockout (or press Enter to cancel): ");
-        let target = prompt_input();
+                // ask admin if they want to clear a specific user
+                println!("\nEnter username to clear lockout (or press Enter to cancel): ");
+                let target = prompt_input();
 
-        if let Some(user_input) = target {
-        let trimmed = user_input.trim();
-        if !trimmed.is_empty() {
-            // Call again with Some(username)
-            logger::clear_lockout(conn, "admin", Some(trimmed))?;
-        } else {
-            println!("No username entered. Returning to menu.");
-        }
-    } else {
-        println!("No input detected. Returning to menu.");
-    }
-}
+                if let Some(user_input) = target {
+                    let trimmed = user_input.trim();
+                    if !trimmed.is_empty() {
+                        // Call again with Some(username)
+                        logger::clear_lockout(conn, "admin", Some(trimmed))?;
+                    } else {
+                        println!("No username entered. Returning to menu.");
+                    }
+                } else {
+                    println!("No input detected. Returning to menu.");
+                }
+            }
             "0" => {
                 println!("🔒 Logging out...");
                 auth::logout_user(conn)?;
@@ -203,10 +203,22 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             }
             "3" => println!("View guest(s) (coming soon)..."),
             "4" => {guest::manage_guests_menu(conn, technician_id, username)?;},
-            
-            "6" => println!("Running diagnostics (coming soon)..."),
-            "7" => println!("Testing sensor data (coming soon)..."),
-            "8" => println!("Viewing system events (coming soon)..."),
+            "5" => println!("Running diagnostics (coming soon)..."),
+            "6" => println!("Viewing system events (coming soon)..."),
+            "7"  => {
+                println!("🌡 Checking indoor temperature...");
+                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
+                    eprintln!("dashboard error: {e}");
+                }
+                wait_for_enter();
+            },
+            "8" => {
+                println!("Outdoor weather data...");
+                if let Err(e) = weather::get_current_weather() {
+                    eprintln!("❌ Error: {:?}", e);
+                }
+                wait_for_enter();
+            },
             "0" => {
                 println!("Logging out...");
                 auth::logout_user(conn)?;
