@@ -104,6 +104,22 @@ pub fn init_system_db() -> Result<Connection> {
             session_expires TEXT,
             FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE
         );
+
+        -- ===============================
+        -- WEATHER TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS weather (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            time TEXT,
+            temperature_f REAL,
+            temperature_c REAL,
+            dewpoint_f REAL,
+            dewpoint_c REAL,
+            humidity REAL,
+            wind_speed_mph REAL,
+            wind_direction_deg REAL,
+            condition TEXT
+        );
         "#,
     )
     .context("Failed to initialize tables in system.db")?;

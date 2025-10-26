@@ -48,3 +48,17 @@
 2025-10-25T21:03:13.924642700-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
 2025-10-25T21:03:24.724736-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
 2025-10-25T21:06:23.363146800-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-25T22:37:42.181619-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T22:39:21.598559-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T22:39:27.756741-04:00 | actor=yin | target=yin | event=FAILURE_LOGIN | desc=-
+2025-10-25T22:39:39.567548-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T22:42:00.282946-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T22:42:15.133661-04:00 | actor=2 | target=2 | event=FAILURE_LOGIN | desc=-
+2025-10-25T22:42:22.852662-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T22:43:23.722443-04:00 | actor=admin | target=hyin | event=ACCOUNT_CREATED | desc=User 'hyin' created by 'admin'
+2025-10-25T22:43:29.564928-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T22:43:39.948769-04:00 | actor=hyin | target=hyin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T22:43:49.170670-04:00 | actor=hyin | target=yin | event=ACCOUNT_CREATED | desc=User 'yin' created by 'hyin'
+2025-10-25T22:44:08.680760-04:00 | actor=hyin | target=hyin | event=LOGOUT | desc=User logged out
+2025-10-25T22:44:13.499588-04:00 | actor=yin | target=yin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T22:45:14.728694-04:00 | actor=yin | target=yin | event=LOGOUT | desc=User logged out
