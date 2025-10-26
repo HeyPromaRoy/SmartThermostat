@@ -17,12 +17,21 @@ pub struct HVACSystem {
     pub target_temperature: f32,
 }
 
+// Temperature limits constants
+const MIN_TEMPERATURE: f32 = 16.0;
+const MAX_TEMPERATURE: f32 = 40.0;
+
 impl HVACSystem {
     pub fn new() -> Self {
         Self {
             mode: HVACMode::Off,
             target_temperature: 22.0,
         }
+    }
+    
+    /// Validates if temperature is within allowed range
+    pub fn is_valid_temperature(temp: f32) -> bool {
+        temp >= MIN_TEMPERATURE && temp <= MAX_TEMPERATURE
     }
 
     pub fn set_mode(&mut self, conn: &Connection, mode: HVACMode) {
@@ -37,14 +46,39 @@ impl HVACSystem {
     }
 
     pub fn set_target_temperature(&mut self, conn: &Connection, temperature: f32) {
-        self.target_temperature = temperature;
-        let _ = logger::log_event(
-            conn,
-            "system",
-            None,
-            "HVAC",
-            Some(&format!("Target temperature set to {:.1} °C", temperature)),
-        );
+        // Validate temperature limits
+        if temperature < MIN_TEMPERATURE {
+            println!("❌ Temperature too low! Minimum allowed: {:.1}°C", MIN_TEMPERATURE);
+            println!("   Setting to minimum: {:.1}°C", MIN_TEMPERATURE);
+            self.target_temperature = MIN_TEMPERATURE;
+            let _ = logger::log_event(
+                conn,
+                "system",
+                None,
+                "HVAC",
+                Some(&format!("Temperature below limit ({:.1}°C), set to minimum {:.1}°C", temperature, MIN_TEMPERATURE)),
+            );
+        } else if temperature > MAX_TEMPERATURE {
+            println!("❌ Temperature too high! Maximum allowed: {:.1}°C", MAX_TEMPERATURE);
+            println!("   Setting to maximum: {:.1}°C", MAX_TEMPERATURE);
+            self.target_temperature = MAX_TEMPERATURE;
+            let _ = logger::log_event(
+                conn,
+                "system",
+                None,
+                "HVAC",
+                Some(&format!("Temperature above limit ({:.1}°C), set to maximum {:.1}°C", temperature, MAX_TEMPERATURE)),
+            );
+        } else {
+            self.target_temperature = temperature;
+            let _ = logger::log_event(
+                conn,
+                "system",
+                None,
+                "HVAC",
+                Some(&format!("Target temperature set to {:.1}°C", temperature)),
+            );
+        }
     }
 
     pub fn update(&self, conn: &Connection) {

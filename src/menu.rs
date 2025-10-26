@@ -315,14 +315,19 @@ fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
         match prompt_input() {
             Some(choice) => match choice.trim() {
                 "1" => {
+                    println!("\n⚙️  Temperature must be between 16°C and 40°C");
                     print!("Enter target temperature (°C): ");
                     io::stdout().flush()?;
                     if let Some(temp_str) = prompt_input() {
                         if let Ok(temp) = temp_str.trim().parse::<f32>() {
-                            hvac.set_target_temperature(conn, temp);
-                            println!("Temperature set to {:.1}°C", temp);
+                            if hvac::HVACSystem::is_valid_temperature(temp) {
+                                hvac.set_target_temperature(conn, temp);
+                                println!("✓ Temperature set to {:.1}°C", temp);
+                            } else {
+                                println!("❌ Invalid temperature! Must be between 16°C and 40°C");
+                            }
                         } else {
-                            println!("Invalid temperature value");
+                            println!("❌ Invalid temperature value");
                         }
                     }
                 }
