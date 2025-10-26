@@ -1,0 +1,139 @@
+mod ui; mod auth; mod guest; mod db; mod logger;
+mod menu; mod weather; mod senser; mod function;
+
+use anyhow::Result;
+use rusqlite::params;
+use std::io::{self, Write};
+
+fn main() -> Result<()> {
+    // Initialize unified system database (users + logs + lockouts)
+    let mut conn = db::get_connection().expect("Failed to initialize system database.");
+
+    // Check if any admin exists
+    let admin_exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE user_status = 'admin')",
+        [],
+        |row| row.get(0),
+    )?;
+
+    if !admin_exists {
+        println!("No admin user found. Setting up initial admin account...");
+    }
+
+    // Show front page UI
+    ui::front_page_ui();
+
+    // Main program loop
+    loop {
+        match function::prompt_input() {
+            Some(choice) => match choice.trim() {
+                // === [1] USER LOGIN ===
+                "1" => {
+                    ui::user_login_ui();
+                    match auth::login_user(&conn) {
+                        Ok(Some((username, role))) => {
+                            // Proceed to role-based menu
+                            menu::main_menu(&mut conn, &username, &role)?;
+                        }
+                        Ok(None) => {
+                            ui::front_page_ui();
+                        }
+                        Err(e) => {
+                            eprintln!("Login error: {e}");
+                            ui::front_page_ui();
+                        }
+                    }
+                }
+
+                // === [2] GUEST LOGIN ===
+                "2" => {
+                    ui::user_login_ui();
+                    match guest::guest_login_user(&mut conn) {
+                        Ok(Some(username)) => {
+                            let username: String = username;
+                            menu::main_menu(&mut conn, &username, "guest")?;
+                        }
+                        Ok(None) => {
+                            ui::front_page_ui();
+                        }
+                        Err(e) => {
+                            eprintln!("Guest login error: {e}");
+                            ui::front_page_ui();
+                        }
+                    }
+                }
+
+                // === [3] ABOUT ===
+                "3" => {
+                    ui::about_ui();
+                    function::wait_for_enter();
+                    ui::front_page_ui();
+                }
+
+                // === [4] ADMIN ACCOUNT MANAGEMENT ===
+                "4" => {
+                    println!("\n=== Admin Account Management ===");
+                    println!("[1] Reset Admin Account (Create New)");
+                    println!("[2] Reset Admin Password");
+                    println!("[3] Back to Main Menu");
+                    print!("\nSelect an option [1-3]: ");
+                    io::stdout().flush()?;
+                    let mut admin_choice = String::new();
+                    io::stdin().read_line(&mut admin_choice)?;
+
+                    match admin_choice.trim() {
+                        "1" => {
+                            println!("\n=== Reset Admin Account ===");
+                            println!("Warning: This will create a new admin account if none exists.");
+                            print!("Are you sure? (yes/no): ");
+                            io::stdout().flush()?;
+                            let mut confirm = String::new();
+                            io::stdin().read_line(&mut confirm)?;
+                            if confirm.trim().to_lowercase() == "yes" {
+                        // Drop existing admin and create new one
+                        conn.execute("DELETE FROM users WHERE user_status = 'admin'", [])?;
+                        
+                        // Create initial admin user
+                        println!("\nCreate new admin account:");
+                        print!("Enter admin username: ");
+                        io::stdout().flush()?;
+                        let mut username = String::new();
+                        io::stdin().read_line(&mut username)?;
+                        let username = username.trim();
+
+                        print!("Enter admin password: ");
+                        io::stdout().flush()?;
+                        let password = rpassword::read_password()?;
+                        let password = password.trim();
+
+                        // Hash password and create admin
+                        let password_hash = auth::hash_password(password)?;
+                        
+                        conn.execute(
+                            "INSERT INTO users (username, hashed_password, user_status, is_active, created_at) 
+                             VALUES (?1, ?2, 'admin', 1, datetime('now'))",
+                            params![username, password_hash],
+                        )?;
+
+                        println!("Admin account created successfully!");
+                    }
+                    ui::front_page_ui();
+                }
+
+                // === [5] EXIT ===
+                "5" => {
+                    println!("Goodbye!");
+                    break;
+                }
+
+                _ => println!("Invalid choice. Please enter 1–5.\n"),
+            },
+            None => {
+                println!("End of input detected. Exiting...");
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}

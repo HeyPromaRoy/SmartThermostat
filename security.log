@@ -27,3 +27,11 @@
 2025-10-25T18:14:30.358912500-04:00 | actor=tahsin | target=tahsin | event=LOGOUT | desc=User logged out
 2025-10-25T18:14:40.622217400-04:00 | actor=tahsinur | target=tahsinur | event=SUCCESS_LOGIN | desc=-
 2025-10-25T18:14:42.322357300-04:00 | actor=tahsinur | target=tahsinur | event=LOGOUT | desc=User logged out
+2025-10-25T20:11:59.763600-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-25T20:12:10.891849200-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-25T20:12:33.983847700-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-25T20:18:30.656421900-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-25T20:25:42.557661600-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T20:25:44.646110-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T20:26:53.739534800-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T20:26:56.826045800-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
