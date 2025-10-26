@@ -13,6 +13,46 @@ use crate::hvac;
 use crate::weather;
 use crate::function::{prompt_input, wait_for_enter};
 
+use crate::profile::{HVACProfile, apply_profile};
+use crate::hvac::HVACSystem;
+
+// ===============================================================
+//                         PROFILE SELECTION MENU
+// ===============================================================
+fn profile_selection_menu(conn: &mut Connection, _username: &str) -> Result<()> {
+    ui::profile_selection_ui();
+    
+    match prompt_input() {
+        Some(choice) => {
+            let profile = match choice.trim() {
+                "1" => HVACProfile::Day,
+                "2" => HVACProfile::Night,
+                "3" => HVACProfile::Sleep,
+                "4" => HVACProfile::Party,
+                "5" => HVACProfile::Vacation,
+                "6" => HVACProfile::Away,
+                "0" => {
+                    println!("Profile selection cancelled.");
+                    return Ok(());
+                }
+                _ => {
+                    println!("Invalid option.");
+                    return Ok(());
+                }
+            };
+
+            let mut hvac = HVACSystem::new();
+            apply_profile(conn, &mut hvac, profile);
+            println!("\n✓ Profile applied successfully!");
+            wait_for_enter();
+        }
+        None => {
+            println!("No input detected.");
+        }
+    }
+    Ok(())
+}
+
 // ===============================================================
 //                         MAIN MENU
 // ===============================================================
@@ -94,6 +134,14 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 }
                 wait_for_enter();
             },
+            "8" => {
+                profile_selection_menu(conn, username)?;
+            },
+            "9" => {
+                println!("Profile settings (coming soon)...");
+                wait_for_enter();
+            },
+
             "0" => {
                 println!("Logging out...");
                 auth::logout_user(conn)?;
@@ -160,6 +208,23 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
                     println!("No input detected. Returning to menu.");
                 }
             }
+            "7" => {
+                println!("🌡 Checking indoor temperature...");
+                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
+                    eprintln!("dashboard error: {e}");
+                }
+                wait_for_enter();
+            },
+            "8" => {
+                println!("Outdoor weather data...");
+                if let Err(e) = weather::get_current_weather() {
+                    eprintln!("❌ Error: {:?}", e);
+                }
+                wait_for_enter();
+            },
+            "9" => {
+                profile_selection_menu(conn, username)?;
+            },
             "0" => {
                 println!("🔒 Logging out...");
                 auth::logout_user(conn)?;
@@ -218,6 +283,9 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
+            },
+            "9" => {
+                profile_selection_menu(conn, username)?;
             },
             "0" => {
                 println!("Logging out...");
@@ -285,7 +353,10 @@ fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
                     hvac.diagnostics(conn);
                     wait_for_enter();
                 }
-                "5" => break,
+                "5" => {
+                    profile_selection_menu(conn, username)?;
+                }
+                "6" => break,
                 _ => println!("Invalid option. Please try again."),
             },
             None => break,
@@ -318,6 +389,9 @@ fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool
                 wait_for_enter();
             },
             "4" => hvac_control_menu(conn, username)?,
+            "5" => {
+                profile_selection_menu(conn, username)?;
+            },
             "0" => {
                 println!("🔒 Logging out...");
                 auth::logout_user(conn)?;

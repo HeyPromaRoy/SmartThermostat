@@ -9,3 +9,25 @@
 2025-10-26T12:54:37.877482600-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
 2025-10-26T12:54:59.853873400-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
 2025-10-26T12:59:38.381569900-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T13:43:01.029833900-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T13:43:44.804836600-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T13:50:07.582822200-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T13:50:53.359064400-04:00 | actor=admin | target=proma2 | event=ACCOUNT_CREATED | desc=User 'proma2' created by 'admin'
+2025-10-26T13:52:20.618127300-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-26T13:52:48.429039900-04:00 | actor=proma2 | target=proma2 | event=FAILURE_LOGIN | desc=-
+2025-10-26T13:53:07.453982100-04:00 | actor=proma2 | target=proma2 | event=FAILURE_LOGIN | desc=-
+2025-10-26T13:54:08.463468600-04:00 | actor=proma2 | target=proma2 | event=FAILURE_LOGIN | desc=-
+2025-10-26T13:55:32.231300700-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T13:56:31.399759100-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T13:58:02.294656900-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T13:59:05.239292600-04:00 | actor=admin | target=puja | event=ACCOUNT_CREATED | desc=User 'puja' created by 'admin'
+2025-10-26T14:00:30.171824800-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-26T14:00:43.606046200-04:00 | actor=puja | target=puja | event=SUCCESS_LOGIN | desc=-
+2025-10-26T14:15:11.748761-04:00 | actor=puja | target=guestforpuja | event=ACCOUNT_CREATED | desc=User 'guestforpuja' created by 'puja'
+2025-10-26T14:15:19.125669500-04:00 | actor=puja | target=puja | event=LOGOUT | desc=User logged out
+2025-10-26T14:15:33.282655-04:00 | actor=guestforpuja | target=guestforpuja | event=FAILURE_LOGIN | desc=-
+2025-10-26T14:15:56.243213700-04:00 | actor=guestforpuja | target=guestforpuja | event=FAILURE_LOGIN | desc=-
+2025-10-26T14:16:10.117833700-04:00 | actor=guestforpuja | target=guestforpuja | event=SUCCESS_LOGIN | desc=-
+2025-10-26T14:19:27.521669-04:00 | actor=guestforpuja | target=guestforpuja | event=LOGOUT | desc=User logged out
+2025-10-26T14:24:05.514994100-04:00 | actor=puja | target=puja | event=SUCCESS_LOGIN | desc=-
+2025-10-26T14:25:00.853959900-04:00 | actor=puja | target=puja | event=LOGOUT | desc=User logged out
