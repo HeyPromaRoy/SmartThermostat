@@ -1,5 +1,5 @@
 [package]
-name = "SmartThermostat"
+name = "smart_thermostat"
 version = "0.1.0"
 edition = "2024"
 authors = ["Tahsinur Rahman", "Hsiao-Yin Peng", "Proma Roy", "Md Ariful Islam Fahim"]
@@ -9,7 +9,7 @@ anyhow = "1.0"
 argon2 = { version = "0.5", features = ["std"] }
 base64 = "0.22"
 blake3 = "1.5"
-colored = "3.0"
+colored = "3.0" 
 chrono = "0.4"
 chrono-tz = "0.10.4"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
