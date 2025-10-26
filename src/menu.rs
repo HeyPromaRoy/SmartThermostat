@@ -9,6 +9,7 @@ use crate::logger;
 use crate::db;
 use crate::guest;
 use crate::senser;
+use crate::hvac;
 use crate::function::{prompt_input, wait_for_enter};
 
 // ===============================================================
@@ -81,6 +82,9 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 eprintln!("dashboard error: {e}");
                 }
                 wait_for_enter();
+            },
+            "6" => {
+                hvac_control_menu(conn, username)?;
             },
             "0" => {
                 println!("Logging out...");
@@ -212,6 +216,65 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
 }
 
 // ===============================================================
+//                         HVAC CONTROL MENU
+// ===============================================================
+fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
+    let mut hvac = hvac::HVACSystem::new();
+    
+    loop {
+        ui::hvac_control_ui();
+
+        match prompt_input() {
+            Some(choice) => match choice.trim() {
+                "1" => {
+                    print!("Enter target temperature (°C): ");
+                    io::stdout().flush()?;
+                    if let Some(temp_str) = prompt_input() {
+                        if let Ok(temp) = temp_str.trim().parse::<f32>() {
+                            hvac.set_target_temperature(conn, temp);
+                            println!("Temperature set to {:.1}°C", temp);
+                        } else {
+                            println!("Invalid temperature value");
+                        }
+                    }
+                }
+                "2" => {
+                    println!("\nSelect mode:");
+                    println!("[1] Heat  [2] Cool  [3] Auto  [4] Fan  [5] Off");
+                    if let Some(mode) = prompt_input() {
+                        let new_mode = match mode.trim() {
+                            "1" => hvac::HVACMode::Heating,
+                            "2" => hvac::HVACMode::Cooling,
+                            "3" => hvac::HVACMode::Auto,
+                            "4" => hvac::HVACMode::FanOnly,
+                            "5" => hvac::HVACMode::Off,
+                            _ => {
+                                println!("Invalid mode selection");
+                                continue;
+                            }
+                        };
+                        hvac.set_mode(conn, new_mode);
+                        println!("Mode set to {:?}", new_mode);
+                    }
+                }
+                "3" => {
+                    hvac.update(conn);
+                    wait_for_enter();
+                }
+                "4" => {
+                    hvac.diagnostics(conn);
+                    wait_for_enter();
+                }
+                "5" => break,
+                _ => println!("Invalid option. Please try again."),
+            },
+            None => break,
+        }
+    }
+    Ok(())
+}
+
+// ===============================================================
 //                         GUEST MENU
 // ===============================================================
 fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool> {
@@ -229,7 +292,7 @@ fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool
             }
             ,
             "3" => println!("Retrieving outdoor weather stats (coming soon)..."),
-            "4" => println!("Adjusting HVAC control (coming soon)..."),
+            "4" => hvac_control_menu(conn, username)?,
             "0" => {
                 println!("🔒 Logging out...");
                 auth::logout_user(conn)?;

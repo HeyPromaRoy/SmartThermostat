@@ -1,5 +1,5 @@
 mod ui; mod auth; mod guest; mod db; mod logger;
-mod menu; mod weather; mod senser; mod function;
+mod menu; mod weather; mod senser; mod function; mod hvac;
 
 use anyhow::Result;
 use std::io::{self, Write};

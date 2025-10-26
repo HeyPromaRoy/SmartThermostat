@@ -38,3 +38,13 @@
 2025-10-25T20:28:31.317154900-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
 2025-10-25T20:28:54.540692-04:00 | actor=admin | target=proma | event=ACCOUNT_CREATED | desc=User 'proma' created by 'admin'
 2025-10-25T20:29:12.324657300-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T20:57:01.302750100-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T20:58:09.900130800-04:00 | actor=admin | target=proma | event=ACCOUNT_DISABLED | desc=User 'proma' disabled by Admin 'admin'
+2025-10-25T21:00:11.434021700-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T21:01:28.340048-04:00 | actor=proma | target=proma | event=ACCOUNT_DISABLED | desc=Blocked login on disabled account
+2025-10-25T21:01:53.097997700-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-25T21:02:07.125502-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T21:02:49.774574100-04:00 | actor=admin | target=proma | event=ACCOUNT_ENABLED | desc=User 'proma' enabled by Admin 'admin'
+2025-10-25T21:03:13.924642700-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T21:03:24.724736-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-25T21:06:23.363146800-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out

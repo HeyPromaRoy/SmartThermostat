@@ -96,9 +96,9 @@ pub fn homeowner_ui() {
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] View profile      |  [5] Indoor Sensing".color(Color::White));
-    println!("{}{}", spacing2, "[2] Register a guest  |  [6] Outdoor Weather".color(Color::White));
-    println!("{}{}", spacing2, "[3] View guest(s)     |  [7] ".color(Color::White));
-    println!("{}{}", spacing2, "[4] Manage Guests     |  [8] ".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a guest  |  [6] HVAC Control".color(Color::White));
+    println!("{}{}", spacing2, "[3] View guest(s)     |  [7] Outdoor Weather".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Guests     |  [8] System Status".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
 
@@ -197,6 +197,54 @@ pub fn about_ui() {
 
     println!("{}{}", pad, bar.color(border_color));
     println!();
+}
+
+pub fn hvac_control_ui() {
+    let bar_color = Color::Cyan;
+    let title_color = Color::BrightYellow;
+    let text_color = Color::White;
+
+    let menu_bar = "=".repeat(46);
+    let menu_spc = " ".repeat(16);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(8);
+
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    println!("{}{}{}", spacing1, menu_spc, "HVAC CONTROL PANEL".bold().color(title_color));
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    
+    println!("{}{}", spacing2, "[1] Set Temperature".color(text_color));
+    println!("{}{}", spacing2, "[2] Change Mode (Heat/Cool/Auto/Fan/Off)".color(text_color));
+    println!("{}{}", spacing2, "[3] View Current Status".color(text_color));
+    println!("{}{}", spacing2, "[4] Run Diagnostics".color(text_color));
+    println!("{}{}", spacing2, "[5] Return to Main Menu".color(text_color));
+
+    println!();
+    print!("{}","Select an option [1-5]: ".bold().color(Color::Cyan));
+}
+
+pub fn hvac_status_ui(temp: f32, target: f32, mode: &str, status: &str) {
+    let bar_color = Color::Cyan;
+    let title_color = Color::BrightYellow;
+    let text_color = Color::White;
+    let value_color = Color::BrightGreen;
+
+    let menu_bar = "=".repeat(46);
+    let menu_spc = " ".repeat(17);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(8);
+
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    println!("{}{}{}", spacing1, menu_spc, "HVAC STATUS".bold().color(title_color));
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    
+    println!("{}{} {}", spacing2, "Current Temperature:".color(text_color), format!("{:.1}°C", temp).color(value_color));
+    println!("{}{} {}", spacing2, "Target Temperature:".color(text_color), format!("{:.1}°C", target).color(value_color));
+    println!("{}{} {}", spacing2, "Operation Mode:".color(text_color), mode.color(value_color));
+    println!("{}{} {}", spacing2, "Current Status:".color(text_color), status.color(value_color));
+
+    println!();
+    println!("{}{}", spacing2, "Press Enter to continue...".color(Color::Cyan));
 }
 
 pub fn manage_guest_menu() {

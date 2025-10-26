@@ -1,0 +1,123 @@
+use rusqlite::Connection;
+use anyhow::Result;
+use std::io::{self, Write};
+use std::time::Duration;
+
+use crate::ui;
+use crate::auth;
+use crate::logger;
+use crate::db;
+use crate::guest;
+use crate::senser;
+use crate::hvac;
+use crate::function::{prompt_input, wait_for_enter};
+
+// ===============================================================
+//                         MAIN MENU
+// ===============================================================
+pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()> {
+    loop {
+        match role {
+            "homeowner" => {
+                ui::homeowner_ui();
+                if !homeowner_menu(conn, username, role)? {
+                    break;
+                }
+            }
+            "technician" => {
+                ui::technician_ui();
+                if !technician_menu(conn, username, role)? {
+                    break;
+                }
+            }
+            "guest" => {
+                ui::guest_ui();
+                if !guest_menu(conn, username, role)? {
+                    break;
+                }
+            }
+            "admin" => {
+                ui::admin_ui();
+                if !admin_menu(conn, username, role)? {
+                    break;
+                }
+            }
+            _ => {
+                println!("Unknown role: '{role}'. Please contact an administrator.");
+                break;
+            }
+        }
+    }
+    Ok(())
+}
+
+// ===============================================================
+//                         HVAC CONTROL MENU
+// ===============================================================
+pub fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
+    let mut hvac_system = hvac::HVACSystem::new();
+    
+    loop {
+        ui::hvac_control_ui();
+        
+        match prompt_input() {
+            Some(choice) => match choice.trim() {
+                "1" => {
+                    print!("Enter target temperature (°C): ");
+                    io::stdout().flush()?;
+                    if let Some(temp_str) = prompt_input() {
+                        if let Ok(temp) = temp_str.trim().parse::<f32>() {
+                            hvac_system.set_target_temperature(conn, temp);
+                            println!("Temperature set to {:.1}°C", temp);
+                        } else {
+                            println!("Invalid temperature value");
+                        }
+                    }
+                }
+                "2" => {
+                    println!("\nSelect mode:");
+                    println!("[1] Heat  [2] Cool  [3] Auto  [4] Fan  [5] Off");
+                    match prompt_input() {
+                        Some(mode) => {
+                            let new_mode = match mode.trim() {
+                                "1" => hvac::HVACMode::Heat,
+                                "2" => hvac::HVACMode::Cool,
+                                "3" => hvac::HVACMode::Auto,
+                                "4" => hvac::HVACMode::Fan,
+                                "5" => hvac::HVACMode::Off,
+                                _ => {
+                                    println!("Invalid mode selection");
+                                    continue;
+                                }
+                            };
+                            hvac_system.set_mode(conn, new_mode)?;
+                            println!("Mode set to {:?}", new_mode);
+                        }
+                        None => break,
+                    }
+                }
+                "3" => {
+                    let status = hvac_system.get_status(conn);
+                    ui::hvac_status_ui(
+                        status.current_temp,
+                        status.target_temp,
+                        &format!("{:?}", status.mode),
+                        &format!("{:?}", status.state)
+                    );
+                    wait_for_enter();
+                }
+                "4" => {
+                    println!("\nRunning HVAC diagnostics...");
+                    hvac_system.run_diagnostics(conn)?;
+                    wait_for_enter();
+                }
+                "5" => break,
+                _ => println!("Invalid option. Please try again."),
+            },
+            None => break,
+        }
+    }
+    Ok(())
+}
+
+[Previous content of menu.rs functions...]
