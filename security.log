@@ -35,3 +35,6 @@
 2025-10-25T20:25:44.646110-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
 2025-10-25T20:26:53.739534800-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
 2025-10-25T20:26:56.826045800-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-25T20:28:31.317154900-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-25T20:28:54.540692-04:00 | actor=admin | target=proma | event=ACCOUNT_CREATED | desc=User 'proma' created by 'admin'
+2025-10-25T20:29:12.324657300-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
