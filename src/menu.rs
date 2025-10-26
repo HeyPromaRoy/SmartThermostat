@@ -10,6 +10,7 @@ use crate::db;
 use crate::guest;
 use crate::senser;
 use crate::hvac;
+use crate::weather;
 use crate::function::{prompt_input, wait_for_enter};
 
 // ===============================================================
@@ -85,6 +86,12 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
             },
             "6" => {
                 hvac_control_menu(conn, username)?;
+            },
+            "7" => {
+            println!("Retrieving outdoor weather status...");
+                if let Err(e) = weather::get_current_weather() {
+                    eprintln!("❌ Error: {:?}", e);
+                }
             },
             "0" => {
                 println!("Logging out...");
@@ -289,9 +296,13 @@ fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool
                 eprintln!("dashboard error: {e}");
                 }
                 wait_for_enter();
-            }
-            ,
-            "3" => println!("Retrieving outdoor weather stats (coming soon)..."),
+            },
+            "3" => {
+            println!("Retrieving outdoor weather statu...");
+                if let Err(e) = weather::get_current_weather() {
+                    eprintln!("❌ Error: {:?}", e);
+                }
+            },
             "4" => hvac_control_menu(conn, username)?,
             "0" => {
                 println!("🔒 Logging out...");
