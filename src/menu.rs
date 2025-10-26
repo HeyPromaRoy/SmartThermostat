@@ -79,8 +79,8 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 guest::manage_guests_menu(conn, homeowner_id, username)?;},
             "5" => {
                 println!("🌡 Checking indoor temperature...");
-                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default(), Duration::from_secs(1), Some(10)) {
-                eprintln!("dashboard error: {e}");
+                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
+                    eprintln!("dashboard error: {e}");
                 }
                 wait_for_enter();
             },
@@ -92,6 +92,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 if let Err(e) = weather::get_current_weather() {
                     eprintln!("❌ Error: {:?}", e);
                 }
+                wait_for_enter();
             },
             "0" => {
                 println!("Logging out...");
@@ -292,8 +293,8 @@ fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool
                 wait_for_enter();},
             "2" => {
                 println!("🌡 Checking indoor temperature...");
-                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default(), Duration::from_secs(1), Some(10)) {
-                eprintln!("dashboard error: {e}");
+                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
+                    eprintln!("dashboard error: {e}");
                 }
                 wait_for_enter();
             },
@@ -302,6 +303,7 @@ fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool
                 if let Err(e) = weather::get_current_weather() {
                     eprintln!("❌ Error: {:?}", e);
                 }
+                wait_for_enter();
             },
             "4" => hvac_control_menu(conn, username)?,
             "0" => {

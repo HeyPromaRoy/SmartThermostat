@@ -180,6 +180,49 @@ pub fn read_all() -> Result<IndoorReading, SensorError> {
     })
 }
 
+pub fn run_dashboard_inline(thresholds: Thresholds) -> Result<(), SensorError> {
+    match read_all() {
+        Ok(r) => {
+            let red = |s: String| format!("\x1b[31m{}\x1b[0m", s);
+            let green = |s: String| format!("\x1b[32m{}\x1b[0m", s);
+
+            let temp_str = if r.temperature_c >= thresholds.temp_warn_hi {
+                red(format!("{:.1}°C", r.temperature_c))
+            } else {
+                green(format!("{:.1}°C", r.temperature_c))
+            };
+
+            let co_str = if r.co_ppm >= thresholds.co_warn_hi {
+                red(format!("{:.1}ppm", r.co_ppm))
+            } else {
+                green(format!("{:.1}ppm", r.co_ppm))
+            };
+
+            let ts = chrono::Local::now();
+            let formatted = ts.format("%b %d, %Y %I:%M %p %Z").to_string();
+
+            println!("🌈✨=============================================✨🌈");
+            println!("🏠  Indoor Air Status");
+            println!("🌡️  Temperature: {}", temp_str);
+            println!("💦  Humidity: {:.1}%", r.humidity_pct);
+            println!("🫧  CO: {}", co_str);
+            println!("🕒  Time: {}", formatted);
+            println!("🌈✨=============================================✨🌈");
+        }
+        Err(e) => {
+            println!("🌈✨=============================================✨🌈");
+            println!("⚠️  Read error: {}", e);
+            let ts = chrono::Local::now();
+            let formatted = ts.format("%b %d, %Y %I:%M %p %Z").to_string();
+            println!("🕒  Time: {}", formatted);
+            println!("🌈✨=============================================✨🌈");
+        }
+    }
+
+    Ok(())
+}
+
+/*
 /// Show: `Indoor: 24.1°C | 48.3% | 3.0ppm (ts=...)`
 pub fn run_dashboard_inline(
     thresholds: Thresholds,
@@ -226,7 +269,7 @@ pub fn run_dashboard_inline(
     println!("");
     Ok(())
 }
-
+*/
 
 /* ===================================== test  ===================================== */
 
