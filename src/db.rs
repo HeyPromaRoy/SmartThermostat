@@ -7,7 +7,6 @@ use rusqlite::{params, Connection, OptionalExtension};
 use rpassword::read_password;
 use rand::{RngCore, rngs::OsRng};
 use std::io::{self, Write};
-use uuid::Uuid;
 use zeroize::Zeroizing;
 
 use crate::auth;

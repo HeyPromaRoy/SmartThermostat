@@ -11,7 +11,6 @@ mod hvac;
 mod profile;
 
 use anyhow::Result;
-use std::io::{self, Write};
 
 fn main() -> Result<()> {
     // Initialize unified system database (users + logs + lockouts)

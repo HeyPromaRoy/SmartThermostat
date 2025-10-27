@@ -1,7 +1,6 @@
 use rusqlite::Connection;
 use anyhow::Result;
 use std::io::{self, Write};
-use std::time::Duration;
 
 use crate::ui;
 use crate::auth;
