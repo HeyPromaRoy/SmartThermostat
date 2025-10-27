@@ -8,3 +8,4 @@ pub mod hvac;
 pub mod logger;
 pub mod menu;
 pub mod ui;
+pub mod profile;

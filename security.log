@@ -97,3 +97,5 @@
 2025-10-26T19:29:12.638768800-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
 2025-10-26T19:47:01.538917300-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
 2025-10-26T19:47:26.006637-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T19:59:40.714995100-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T20:00:52.548654100-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
