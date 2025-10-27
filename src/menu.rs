@@ -15,6 +15,7 @@ use crate::function::{prompt_input, wait_for_enter};
 
 use crate::profile::{HVACProfile, apply_profile};
 use crate::hvac::HVACSystem;
+use chrono::Local;
 
 // ===============================================================
 //                         PROFILE SELECTION MENU
@@ -135,7 +136,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 wait_for_enter();
             },
             "8" => {
-                profile_selection_menu(conn, username)?;
+                show_system_status(conn)?;
             },
             "9" => {
                 println!("Profile settings (coming soon)...");
@@ -223,7 +224,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
                 wait_for_enter();
             },
             "9" => {
-                profile_selection_menu(conn, username)?;
+                manage_profiles_menu(conn, username, role)?;
             },
             "0" => {
                 println!("🔒 Logging out...");
@@ -367,6 +368,109 @@ fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
             None => break,
         }
     }
+    Ok(())
+}
+
+// ===============================================================
+//                  SYSTEM STATUS (TIME + SCHEDULE)
+// ===============================================================
+fn show_system_status(conn: &mut Connection) -> Result<()> {
+    let now = Local::now();
+    let time_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
+    let scheduled = crate::profile::current_scheduled_profile();
+    println!("\n===== System Status =====");
+    println!("Current time: {}", time_str);
+    println!("Scheduled profile window: {:?}", scheduled);
+    println!("Apply this scheduled profile now? (y/n)");
+    if let Some(ans) = prompt_input() {
+        if ans.trim().eq_ignore_ascii_case("y") {
+            let mut hvac = HVACSystem::new();
+            apply_profile(conn, &mut hvac, scheduled);
+        }
+    }
+    wait_for_enter();
+    Ok(())
+}
+
+// ===============================================================
+//                  ADMIN: MANAGE PROFILE SETTINGS
+// ===============================================================
+fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_role: &str) -> Result<()> {
+    if current_role != "admin" { println!("Access denied: Only admins can manage profiles."); return Ok(()); }
+
+    loop {
+        println!("\n===== Profile Settings =====");
+        let profiles = db::list_profile_rows(conn)?;
+        for (idx, p) in profiles.iter().enumerate() {
+            println!("[{}] {:<9}  mode={:<7} temp={:.1}°C", idx + 1, p.name, p.mode, p.target_temp);
+        }
+        println!("[E] Edit a profile  [R] Reset to defaults  [Q] Back");
+        print!("Select option: "); io::stdout().flush().ok();
+        let choice = prompt_input();
+        let Some(choice) = choice else { break };
+        let choice = choice.trim();
+        if choice.eq_ignore_ascii_case("q") { break; }
+        if choice.eq_ignore_ascii_case("e") {
+            print!("Enter profile name (Day/Night/Sleep/Party/Vacation/Away): "); io::stdout().flush().ok();
+            let name = match prompt_input() { Some(s) => s.trim().to_string(), None => continue };
+            let valid = ["Day","Night","Sleep","Party","Vacation","Away"]; if !valid.contains(&name.as_str()) { println!("Invalid name."); continue; }
+            // Mode selection
+            println!("Select mode: [1] Off [2] Heating [3] Cooling [4] FanOnly [5] Auto");
+            let mode_s = match prompt_input() { Some(s) => s.trim().to_string(), None => continue };
+            let mode_str = match mode_s.as_str() { "1"=>"Off", "2"=>"Heating", "3"=>"Cooling", "4"=>"FanOnly", "5"=>"Auto", _=>{ println!("Invalid mode."); continue } };
+            // Temperature
+            print!("Enter target temperature (16-40 °C): "); io::stdout().flush().ok();
+            let temp = match prompt_input().and_then(|s| s.trim().parse::<f32>().ok()) { Some(t)=>t, None=>{ println!("Invalid temp."); continue } };
+            if !HVACSystem::is_valid_temperature(temp) { println!("❌ Invalid temperature! Must be between 16°C and 40°C"); continue; }
+            // Optional greeting
+            print!("Custom greeting (optional, Enter to skip): "); io::stdout().flush().ok();
+            let greeting = prompt_input().map(|s| { let t = s.trim().to_string(); if t.is_empty(){ None } else { Some(t) } }).flatten();
+            // Optional description
+            print!("Description (optional, Enter to skip): "); io::stdout().flush().ok();
+            let description = prompt_input().map(|s| { let t = s.trim().to_string(); if t.is_empty(){ None } else { Some(t) } }).flatten();
+
+            db::update_profile_row(conn, &name, mode_str, temp, greeting.as_deref(), description.as_deref())?;
+            let desc = format!("Profile '{}' updated: mode={}, temp={:.1}", name, mode_str, temp);
+            logger::log_event(conn, admin_username, None, "HVAC", Some(&desc))?;
+            println!("✓ Saved.");
+        } else if choice.eq_ignore_ascii_case("r") {
+            print!("Enter profile name to reset (or 'all'): "); io::stdout().flush().ok();
+            let target = match prompt_input() { Some(s) => s.trim().to_string(), None => continue };
+            if target.eq_ignore_ascii_case("all") {
+                for nm in ["Day","Night","Sleep","Party","Vacation","Away"].iter() {
+                    db::reset_profile_to_default(conn, nm)?;
+                }
+                logger::log_event(conn, admin_username, None, "HVAC", Some("All profiles reset to defaults"))?;
+                println!("All profiles reset.");
+            } else {
+                db::reset_profile_to_default(conn, &target)?;
+                let msg = format!("Profile '{}' reset to defaults", target);
+                logger::log_event(conn, admin_username, None, "HVAC", Some(&msg))?;
+                println!("{}", msg);
+            }
+        } else if let Ok(idx) = choice.parse::<usize>() {
+            // quick apply selected profile view -> open editor-like flow
+            if idx >= 1 && idx <= profiles.len() {
+                let name = profiles[idx-1].name.clone();
+                println!("Selected {}. Choose action: [A] Apply now  [E] Edit  [Back: Enter]", name);
+                if let Some(act) = prompt_input() {
+                    let t = act.trim().to_string();
+                    if t.eq_ignore_ascii_case("a") {
+                        let mut hvac = HVACSystem::new();
+                        let prof = match name.as_str() { "Day"=>HVACProfile::Day, "Night"=>HVACProfile::Night, "Sleep"=>HVACProfile::Sleep, "Party"=>HVACProfile::Party, "Vacation"=>HVACProfile::Vacation, _=>HVACProfile::Away };
+                        apply_profile(conn, &mut hvac, prof);
+                    } else if t.eq_ignore_ascii_case("e") {
+                        // loop back into edit branch by simulating 'E'
+                        // Simpler: prompt again with E
+                        println!("Re-open menu and choose [E] to edit.");
+                    }
+                }
+            }
+        } else {
+            println!("Invalid option.");
+        }
+    }
+
     Ok(())
 }
 

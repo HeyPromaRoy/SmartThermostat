@@ -120,9 +120,24 @@ pub fn init_system_db() -> Result<Connection> {
             wind_direction_deg REAL,
             condition TEXT
         );
+
+        -- ===============================
+        -- PROFILES TABLE (ADMIN-EDITABLE)
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS profiles (
+            name TEXT PRIMARY KEY,
+            mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+            target_temp REAL NOT NULL,
+            greeting TEXT,
+            description TEXT,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
         "#,
     )
     .context("Failed to initialize tables in system.db")?;
+
+    // Seed default profiles if missing
+    seed_default_profiles(&conn)?;
 
     Ok(conn)
 }
@@ -452,3 +467,143 @@ pub fn end_session(conn: &Connection, username: &str) -> Result<()> {
         "DELETE FROM session_state WHERE username = ?1", params![username])?;
     Ok(())
 }
+
+// ======================================================
+//                     PROFILES (HVAC)
+// ======================================================
+
+#[derive(Debug, Clone)]
+pub struct ProfileRow {
+    pub name: String,
+    pub mode: String,
+    pub target_temp: f32,
+    pub greeting: Option<String>,
+    pub description: Option<String>,
+}
+
+fn default_profile_row(name: &str) -> Option<ProfileRow> {
+    match name {
+        "Day" => Some(ProfileRow {
+            name: "Day".to_string(),
+            mode: "Auto".to_string(),
+            target_temp: 22.0,
+            greeting: Some("☀️ Hope you have a good day!".to_string()),
+            description: Some("Auto mode, comfort-oriented, 21-23°C / 24-26°C, Auto fan, Comfort".to_string()),
+        }),
+        "Night" => Some(ProfileRow {
+            name: "Night".to_string(),
+            mode: "Auto".to_string(),
+            target_temp: 20.0,
+            greeting: Some("🌙 Have a Good Night!".to_string()),
+            description: Some("Auto or steady heating/cooling, 20°C heating / 25°C cooling, Low fan speed, Moderate".to_string()),
+        }),
+        "Sleep" => Some(ProfileRow {
+            name: "Sleep".to_string(),
+            mode: "Heating".to_string(),
+            target_temp: 18.0,
+            greeting: Some("😴 Sleep well and sweet dreams!".to_string()),
+            description: Some("Heating preferred, quiet fan, 18-20°C heating / 26-28°C cooling, Fan off/low, Energy saving".to_string()),
+        }),
+        "Party" => Some(ProfileRow {
+            name: "Party".to_string(),
+            mode: "Cooling".to_string(),
+            target_temp: 23.0,
+            greeting: Some("🎊 Let's get this party started!".to_string()),
+            description: Some("Cooling with ventilation, 22°C heating / 23-24°C cooling, Medium-high fan, Comfort prioritized".to_string()),
+        }),
+        "Vacation" => Some(ProfileRow {
+            name: "Vacation".to_string(),
+            mode: "Off".to_string(),
+            target_temp: 24.0,
+            greeting: Some("🏖️ Enjoy your vacation!".to_string()),
+            description: Some("HVAC mostly off, 16-18°C heating / 29-30°C cooling, Fan off, Max energy saving".to_string()),
+        }),
+        "Away" => Some(ProfileRow {
+            name: "Away".to_string(),
+            mode: "Off".to_string(),
+            target_temp: 25.0,
+            greeting: Some("🚗 Have a safe trip!".to_string()),
+            description: Some("HVAC off/eco mode, 17-18°C heating / 28°C cooling, Fan off, Energy saving".to_string()),
+        }),
+        _ => None,
+    }
+}
+
+fn seed_default_profiles(conn: &Connection) -> Result<()> {
+    // Insert if missing
+    let defaults = ["Day", "Night", "Sleep", "Party", "Vacation", "Away"];
+    for name in defaults.iter() {
+        if let Some(def) = default_profile_row(name) {
+            conn.execute(
+                "INSERT OR IGNORE INTO profiles (name, mode, target_temp, greeting, description) VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![def.name, def.mode, def.target_temp, def.greeting, def.description],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT name, mode, target_temp, greeting, description FROM profiles WHERE name = ?1",
+    )?;
+    let row = stmt
+        .query_row(params![name], |r| {
+            Ok(ProfileRow {
+                name: r.get::<_, String>(0)?,
+                mode: r.get::<_, String>(1)?,
+                target_temp: r.get::<_, f32>(2)?,
+                greeting: r.get::<_, Option<String>>(3)?,
+                description: r.get::<_, Option<String>>(4)?,
+            })
+        })
+        .optional()?;
+    Ok(row)
+}
+
+pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
+    let mut stmt = conn.prepare(
+        "SELECT name, mode, target_temp, greeting, description FROM profiles ORDER BY name",
+    )?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(ProfileRow {
+                name: r.get(0)?,
+                mode: r.get(1)?,
+                target_temp: r.get(2)?,
+                greeting: r.get(3)?,
+                description: r.get(4)?,
+            })
+        })?;
+    let mut out = Vec::new();
+    for r in rows { out.push(r?); }
+    Ok(out)
+}
+
+pub fn update_profile_row(
+    conn: &Connection,
+    name: &str,
+    mode: &str,
+    target_temp: f32,
+    greeting: Option<&str>,
+    description: Option<&str>,
+) -> Result<()> {
+    conn.execute(
+        "INSERT INTO profiles (name, mode, target_temp, greeting, description, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+         ON CONFLICT(name) DO UPDATE SET mode = excluded.mode, target_temp = excluded.target_temp, greeting = excluded.greeting, description = excluded.description, updated_at = datetime('now')",
+        params![name, mode, target_temp, greeting, description],
+    )?;
+    Ok(())
+}
+
+pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
+    if let Some(def) = default_profile_row(name) {
+        conn.execute(
+            "INSERT INTO profiles (name, mode, target_temp, greeting, description, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
+             ON CONFLICT(name) DO UPDATE SET mode = excluded.mode, target_temp = excluded.target_temp, greeting = excluded.greeting, description = excluded.description, updated_at = datetime('now')",
+            params![def.name, def.mode, def.target_temp, def.greeting, def.description],
+        )?;
+    }
+    Ok(())
+}
+

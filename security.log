@@ -99,3 +99,12 @@
 2025-10-26T19:47:26.006637-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
 2025-10-26T19:59:40.714995100-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
 2025-10-26T20:00:52.548654100-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T20:11:13.667882800-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T20:12:43.824533200-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T20:46:01.684129900-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T20:46:34.863189-04:00 | actor=admin | target=puja | event=LOCKOUT_CLEARED | desc=Admin cleared lockout
+2025-10-26T20:46:53.181803400-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-26T21:16:47.761000300-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T21:18:28.201160900-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T21:19:09.306352700-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-26T21:19:51.480520600-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
