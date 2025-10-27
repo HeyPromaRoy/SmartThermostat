@@ -18,8 +18,8 @@ pub struct HVACSystem {
 }
 
 // Temperature limits constants
-const MIN_TEMPERATURE: f32 = 16.0;
-const MAX_TEMPERATURE: f32 = 40.0;
+pub const MIN_TEMPERATURE: f32 = 16.0;
+pub const MAX_TEMPERATURE: f32 = 40.0;
 
 impl HVACSystem {
     pub fn new() -> Self {
