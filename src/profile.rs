@@ -19,12 +19,12 @@ impl HVACProfile {
             HVACProfile::Night => (HVACMode::Auto, 20.0),
             HVACProfile::Sleep => (HVACMode::Heating, 18.0),
             HVACProfile::Party => (HVACMode::Cooling, 23.0),
-            HVACProfile::Vacation => (HVACMode::Off, 16.0),
-            HVACProfile::Away => (HVACMode::Off, 17.0),
+            HVACProfile::Vacation => (HVACMode::Off, 24.0),
+            HVACProfile::Away => (HVACMode::Off, 25.0),
         }
     }
 
-    pub fn description(self) -> &'static str {
+    pub fn description(self) -> &'static str {lean
         match self {
             HVACProfile::Day => "Auto mode, comfort-oriented, 21-23°C / 24-26°C, Auto fan, Comfort",
             HVACProfile::Night => "Auto or steady heating/cooling, 20°C heating / 25°C cooling, Low fan speed, Moderate",
@@ -38,15 +38,21 @@ impl HVACProfile {
 
 pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProfile) {
     let (mode, temperature) = profile.get_settings();
+    
     hvac.set_mode(conn, mode);
     hvac.set_target_temperature(conn, temperature);
+    
+    // Display enjoyment message BEFORE update
+    let profile_name = format!("{:?}", profile);
+    println!("\n🎉 Enjoy your \"{}\"", profile_name);
+    
     hvac.update(conn);
     let _ = logger::log_event(
         conn,
         "system",
         None,
         "HVAC",
-        Some(&format!("Profile '{}' applied with mode {:?} and temp {:.1}", format!("{:?}", profile), mode, temperature)),
+        Some(&format!("Profile '{}' applied with mode {:?} and temp {:.1}", profile_name, mode, temperature)),
     );
     println!("Applied profile: {}", profile.description());
 }
