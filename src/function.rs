@@ -32,8 +32,3 @@ pub fn wait_for_enter() {
     println!();
 }
 
-pub fn flush_buffer() {
-    let _ = io::stdout().flush();
-    let mut buf = String::new();
-    let _ = io::stdin().read_line(&mut buf);
-}
