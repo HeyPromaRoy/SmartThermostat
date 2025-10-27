@@ -126,7 +126,7 @@ let bar_color = Color::Red;
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
 
     println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [0-8]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [0-9]: ".bold().color(Color::Cyan));
 }
 
 pub fn technician_ui(){
@@ -148,7 +148,7 @@ pub fn technician_ui(){
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
     println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [0-8]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [0-9]: ".bold().color(Color::Cyan));
 }
 
 pub fn guest_ui() {

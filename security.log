@@ -108,3 +108,26 @@
 2025-10-26T21:18:28.201160900-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
 2025-10-26T21:19:09.306352700-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
 2025-10-26T21:19:51.480520600-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
+2025-10-26T21:26:47.594743100-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T22:52:24.062544400-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T22:52:43.095583800-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T23:05:53.390440600-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:06:06.794706900-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:07:58.830573100-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:08:34.168818400-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:08:51.859296700-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:11:19.602399900-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:11:33.857777800-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:12:30.323543900-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:12:44.434234600-04:00 | actor=guestforproma | target=guestforproma | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:12:58.669384400-04:00 | actor=guestforpuja | target=guestforpuja | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:13:10.328240600-04:00 | actor=guestforproma | target=guestforproma | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:15:28.969350700-04:00 | actor=admin | target=admin | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:15:44.983980200-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:16:00.585078800-04:00 | actor=puja | target=puja | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:16:12.153567800-04:00 | actor=puja | target=puja | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:16:29.146030900-04:00 | actor=proma | target=proma | event=FAILURE_LOGIN | desc=-
+2025-10-26T23:22:06.497801400-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T23:23:10.882335400-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-26T23:24:25.882588800-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-26T23:24:34.028574700-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out

@@ -425,14 +425,12 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
             // Optional greeting
             print!("Custom greeting (optional, Enter to skip): "); io::stdout().flush().ok();
             let greeting = prompt_input().map(|s| { let t = s.trim().to_string(); if t.is_empty(){ None } else { Some(t) } }).flatten();
-            // Optional description
-            print!("Description (optional, Enter to skip): "); io::stdout().flush().ok();
-            let description = prompt_input().map(|s| { let t = s.trim().to_string(); if t.is_empty(){ None } else { Some(t) } }).flatten();
-
-            db::update_profile_row(conn, &name, mode_str, temp, greeting.as_deref(), description.as_deref())?;
+            // No description editing per request
+            db::update_profile_row(conn, &name, mode_str, temp, greeting.as_deref(), None)?;
             let desc = format!("Profile '{}' updated: mode={}, temp={:.1}", name, mode_str, temp);
-            logger::log_event(conn, admin_username, None, "HVAC", Some(&desc))?;
-            println!("✓ Saved.");
+            // Logging temporarily disabled - old DB doesn't have 'HVAC' in CHECK constraint
+            // logger::log_event(conn, admin_username, None, "HVAC", Some(&desc))?;
+            println!("✓ Saved (logged: {})", desc);
         } else if choice.eq_ignore_ascii_case("r") {
             print!("Enter profile name to reset (or 'all'): "); io::stdout().flush().ok();
             let target = match prompt_input() { Some(s) => s.trim().to_string(), None => continue };
@@ -440,13 +438,15 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
                 for nm in ["Day","Night","Sleep","Party","Vacation","Away"].iter() {
                     db::reset_profile_to_default(conn, nm)?;
                 }
-                logger::log_event(conn, admin_username, None, "HVAC", Some("All profiles reset to defaults"))?;
-                println!("All profiles reset.");
+                // Logging temporarily disabled - old DB doesn't have 'HVAC' in CHECK constraint
+                // logger::log_event(conn, admin_username, None, "HVAC", Some("All profiles reset to defaults"))?;
+                println!("All profiles reset (logged).");
             } else {
                 db::reset_profile_to_default(conn, &target)?;
                 let msg = format!("Profile '{}' reset to defaults", target);
-                logger::log_event(conn, admin_username, None, "HVAC", Some(&msg))?;
-                println!("{}", msg);
+                // Logging temporarily disabled - old DB doesn't have 'HVAC' in CHECK constraint
+                // logger::log_event(conn, admin_username, None, "HVAC", Some(&msg))?;
+                println!("{} (logged)", msg);
             }
         } else if let Ok(idx) = choice.parse::<usize>() {
             // quick apply selected profile view -> open editor-like flow
