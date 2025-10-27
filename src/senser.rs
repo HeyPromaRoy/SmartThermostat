@@ -5,10 +5,6 @@
 use rand::Rng;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::io::{self, Write};
-use std::thread::sleep;
-use std::time::Duration;
-use chrono::{Local, DateTime};
 
 /// Senser type
 #[derive(Debug, Clone, Copy)]
@@ -24,8 +20,6 @@ pub struct IndoorReading {
     pub temperature_c: f32,
     pub humidity_pct: f32,
     pub co_ppm: f32,
-    /// UNIX time(second)
-    pub ts_sec: u64,
 }
 
 /// Error type
@@ -35,11 +29,6 @@ pub enum SensorError {
         lower: f32,
         upper: f32,
         reason: &'static str,
-    },
-    ValueOutOfRange {
-        value: f32,
-        lower: f32,
-        upper: f32,
     },
     InvalidInput(&'static str),
     DataSource(&'static str),
@@ -66,9 +55,6 @@ impl fmt::Display for SensorError {
         match self {
             SensorError::InvalidBounds { lower, upper, reason } => {
                 write!(f, "Invalid bounds: [{lower}, {upper}] - {reason}")
-            }
-            SensorError::ValueOutOfRange { value, lower, upper } => {
-                write!(f, "Value {value} out of range [{lower}, {upper}]")
             }
             SensorError::InvalidInput(msg) => write!(f, "Invalid input: {msg}"),
             SensorError::DataSource(msg) => write!(f, "Data source error: {msg}"),
@@ -156,7 +142,7 @@ pub fn get_indoor_humidity() -> Result<f32, SensorError> {
 
 /// Get the indoor CO level(ppm)
 /// output: number(f32)
-pub fn get_indoor_COlevel() -> Result<f32, SensorError> {
+pub fn get_indoor_colevel() -> Result<f32, SensorError> {
     let (lo, hi) = default_bounds(SensorType::COPpm);
     let v = gen_random_data(SensorType::COPpm, lo, hi)?;
     Ok(clamp(v, lo, hi))
@@ -166,8 +152,8 @@ pub fn get_indoor_COlevel() -> Result<f32, SensorError> {
 pub fn read_all() -> Result<IndoorReading, SensorError> {
     let temperature_c = get_indoor_temperature()?;
     let humidity_pct = get_indoor_humidity()?;
-    let co_ppm = get_indoor_COlevel()?;
-    let ts_sec = SystemTime::now()
+    let co_ppm = get_indoor_colevel()?;
+    let _ts_sec = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|_| SensorError::DataSource("system clock error"))?
         .as_secs();
@@ -176,7 +162,6 @@ pub fn read_all() -> Result<IndoorReading, SensorError> {
         temperature_c,
         humidity_pct,
         co_ppm,
-        ts_sec,
     })
 }
 
