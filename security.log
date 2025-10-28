@@ -131,3 +131,11 @@
 2025-10-26T23:23:10.882335400-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
 2025-10-26T23:24:25.882588800-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
 2025-10-26T23:24:34.028574700-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-28T09:44:22.096902300-04:00 | actor=admin | target=admin | event=SUCCESS_LOGIN | desc=-
+2025-10-28T09:45:53.983638200-04:00 | actor=admin | target=yin | event=ACCOUNT_DISABLED | desc=User 'yin' disabled by Admin 'admin'
+2025-10-28T09:47:02.901239700-04:00 | actor=admin | target=guestforproma | event=ACCOUNT_DISABLED | desc=User 'guestforproma' disabled by Admin 'admin'
+2025-10-28T09:47:25.018434400-04:00 | actor=admin | target=admin | event=LOGOUT | desc=User logged out
+2025-10-28T09:47:34.990810100-04:00 | actor=proma | target=proma | event=SUCCESS_LOGIN | desc=-
+2025-10-28T09:47:58.344983800-04:00 | actor=proma | target=guestforpuja | event=ACCOUNT_CREATED | desc=User 'guestforpuja' created by 'proma'
+2025-10-28T09:48:59.640097200-04:00 | actor=proma | target=guestforproma | event=ACCOUNT_ENABLED | desc=Homeowner enabled guest account
+2025-10-28T09:51:01.567403-04:00 | actor=proma | target=proma | event=LOGOUT | desc=User logged out
