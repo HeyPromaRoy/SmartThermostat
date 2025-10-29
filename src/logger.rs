@@ -6,12 +6,12 @@ use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use std::{fs::OpenOptions, io::{self, Write}, thread, time::Duration as StdDuration};
 
 // ------------------ PARAMETERS ------------------
-const MAX_ATTEMPTS: usize = 5;          // Max failed attempts before lockout
+pub const MAX_ATTEMPTS: usize = 5;          // Max failed attempts before lockout
 const LOCKOUT_SECONDS_BASE: i64 = 30;   // Initial lockout (30s)
 const MAX_LOCKOUT_SECONDS: i64 = 300;   // Max lockout cap (5 minutes)
 
 // Current timestamp in Eastern Time (EST/EDT)
-fn now_est() -> DateTime<chrono_tz::Tz> {
+pub fn now_est() -> DateTime<chrono_tz::Tz> {
     New_York.from_utc_datetime(&Utc::now().naive_utc())
 }
 

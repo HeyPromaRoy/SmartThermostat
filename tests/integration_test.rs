@@ -3,7 +3,15 @@ use smart_thermostat::senser::*;
 use smart_thermostat::weather::*;
 use smart_thermostat::auth::*;
 use smart_thermostat::hvac::*;
-use rusqlite::{Connection, Result};
+use smart_thermostat::logger::*;
+use anyhow::Result;
+use rusqlite::{Connection};
+
+
+
+mod tests {
+    use super::*;
+
 
 // ---- Test Senser.rs  ----
 
@@ -44,7 +52,7 @@ fn test_fetch_weather() {
 #[test]
 fn test_register_and_login() -> Result<()> {
     // Create an in-memory SQLite database for testing
-    let mut conn = Connection::open_in_memory()?;
+    let  mut conn = Connection::open_in_memory()?;
 
     // Initialize a simple users table
     conn.execute(
@@ -99,15 +107,49 @@ fn test_password_strength() {
 
 // ---- Test hvac.rs ----
 
-mod tests {
-    use super::*; // Import everything from the parent module (HVACSystem, HVACMode, etc.)
 
     /// Helper function to create an in-memory database for testing
     /// This avoids touching a real database.
     fn test_db() -> Connection {
-        Connection::open_in_memory().unwrap()
+       let  conn = Connection::open_in_memory().unwrap();
+
+          conn.execute(
+            "CREATE TABLE security_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                actor_username TEXT NOT NULL,
+                target_username TEXT,
+                event_type TEXT NOT NULL,
+                description TEXT,
+                timestamp TEXT NOT NULL
+            )",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "CREATE TABLE lockouts (
+                username TEXT PRIMARY KEY COLLATE NOCASE,
+                locked_until TEXT NOT NULL,
+                lock_count INTEGER DEFAULT 1
+            )",
+            [],
+        )
+        .unwrap();
+
+        conn.execute(
+            "CREATE TABLE users (
+                username TEXT PRIMARY KEY COLLATE NOCASE,
+                last_login_time TEXT,
+                updated_at TEXT
+            )",
+            [],
+        )
+        .unwrap();
+
+        conn
     }
 
+    
     /// Test that the `new()` constructor initializes HVACSystem correctly
     #[test]
     fn test_new_hvac_system() {
@@ -195,6 +237,13 @@ mod tests {
         }
     }
 
+    #[test]
+fn test_mock_senser_usage() {
+    let temp = mock_senser::get_indoor_temperature().unwrap();
+    assert_eq!(temp, 23.0); // now the function is used
+}
+
+
     /// Simple test to ensure update() behaves for Auto mode heating scenario
     #[test]
     fn test_update_auto_mode_heating() {
@@ -210,4 +259,142 @@ mod tests {
         }
         // This test ensures update() can run without panicking in Auto mode
     }
+
+// ---- Test logger.rs ----
+
+
+// Test: log_event() basic logging
+   
+ #[test]
+fn test_log_event_creates_db_entry() -> Result<()> {
+    let conn = test_db();
+
+    // Call the function to log a sample event
+    log_event(&conn, "alice", Some("alice"), "TEST_EVENT", Some("This is a test"))?;
+
+    // Verify that it was written into the DB
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM security_log WHERE actor_username='alice' AND event_type='TEST_EVENT'",
+        [],
+        |r| r.get(0),
+    )?;
+    assert_eq!(count, 1);
+
+    Ok(())
 }
+
+// Test: record_login_attempt() — success clears lockout
+
+#[test]
+fn test_record_login_success_clears_lockout() -> Result<()> {
+    let conn = test_db();
+
+    // Simulate that user was previously locked out
+    conn.execute(
+        "INSERT INTO lockouts (username, locked_until, lock_count)
+         VALUES ('alice', datetime('now', '+60 seconds'), 2)",
+        [],
+    )?;
+
+    // Record a successful login
+    record_login_attempt(&conn, "alice", true)?;
+
+    // The lockout should be cleared
+    let remaining: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM lockouts WHERE username='alice'",
+        [],
+        |r| r.get(0),
+    )?;
+    assert_eq!(remaining, 0);
+
+    Ok(())
+}
+
+// Test: record_login_attempt() — failed attempts lockout
+
+#[test]
+fn test_record_login_failure_triggers_lockout() -> Result<()> {
+    let conn = test_db();
+
+    // Simulate multiple failed attempts
+    for _ in 0..MAX_ATTEMPTS {
+        record_login_attempt(&conn, "alice", false)?;
+    }
+
+    // The user should now be locked out
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM lockouts WHERE username='alice'",
+        [],
+        |r| r.get(0),
+    )?;
+    assert_eq!(count, 1);
+
+    Ok(())
+}
+
+// Test: check_lockout() — should detect active ban
+
+#[test]
+fn test_check_lockout_detects_active() -> Result<()> {
+    let conn = test_db();
+
+    // Set a lockout in the future
+    let locked_until = (now_est() + chrono::Duration::seconds(60)).to_rfc3339();
+    conn.execute(
+        "INSERT INTO lockouts (username, locked_until, lock_count)
+         VALUES ('alice', ?1, 1)",
+        [&locked_until],
+    )?;
+
+    let locked = check_lockout(&conn, "alice")?;
+    assert!(locked);
+
+    Ok(())
+}
+
+// Test: clear_lockout() — admin can clear specific user
+
+#[test]
+fn test_clear_lockout_admin_clears_user() -> Result<()> {
+    let conn = test_db();
+
+    // Add a locked-out user
+    conn.execute(
+        "INSERT INTO lockouts (username, locked_until, lock_count)
+         VALUES ('bob', datetime('now', '+120 seconds'), 3)",
+        [],
+    )?;
+
+    // Admin clears the lockout
+    clear_lockout(&conn, "admin", Some("bob"))?;
+
+    // Verify it's gone
+    let count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM lockouts WHERE username='bob'",
+        [],
+        |r| r.get(0),
+    )?;
+    assert_eq!(count, 0);
+
+    Ok(())
+}
+
+// Test: fake_verification_delay() — delay is within bounds
+
+#[test]
+fn test_fake_verification_delay_bounds() {
+    use std::time::Instant;
+    let start = Instant::now();
+    fake_verification_delay();
+    let elapsed = start.elapsed().as_millis();
+
+    // Should be roughly between 100–250 ms
+    assert!(
+        (100..=300).contains(&(elapsed as u64)),
+        "Delay {}ms not in expected range",
+        elapsed
+    );
+}
+
+}
+
