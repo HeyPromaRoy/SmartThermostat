@@ -49,7 +49,7 @@ impl HVACProfile {
     }
 }
 
-pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProfile) {
+pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProfile, username: &str, user_role: &str) {
     // Try DB override first
     let (mut mode, mut temperature) = profile.get_settings();
 
@@ -71,6 +71,17 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
         description_opt = row.description;
     }
     
+    // Enforce mode-specific temperature ranges (e.g., Heating 25–32, Cooling 16–22)
+    let (min_t, max_t) = mode.temperature_range();
+    if !mode.is_valid_temperature_for_mode(temperature) {
+        let adjusted = if temperature < min_t { min_t } else if temperature > max_t { max_t } else { temperature };
+        println!(
+            "Note: Adjusted target temperature for {:?} mode to {:.1}°C (valid range {:.0}–{:.0}°C)",
+            mode, adjusted, min_t, max_t
+        );
+        temperature = adjusted;
+    }
+
     hvac.set_mode(conn, mode);
     hvac.set_target_temperature(conn, temperature);
     
@@ -88,7 +99,9 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     println!("");
     
     hvac.update(conn);
-    let profile_name = name;
+    let profile_name = name.clone();
+    
+    // Log to security_log (existing)
     let _ = logger::log_event(
         conn,
         "system",
@@ -96,6 +109,11 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
         "HVAC",
         Some(&format!("Profile '{}' applied with mode {:?} and temp {:.1}", profile_name, mode, temperature)),
     );
+    
+    // Log to HVAC activity log (new tracking)
+    let mode_str = format!("{:?}", mode);
+    let _ = db::log_profile_applied(conn, username, user_role, &profile_name, &mode_str, temperature);
+    
     let desc = description_opt.as_deref().unwrap_or(profile.description());
     println!("Applied profile: {}", desc);
 }

@@ -19,7 +19,7 @@ use chrono::Local;
 // ===============================================================
 //                         PROFILE SELECTION MENU
 // ===============================================================
-fn profile_selection_menu(conn: &mut Connection, _username: &str) -> Result<()> {
+fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
     ui::profile_selection_ui();
     
     match prompt_input() {
@@ -42,7 +42,7 @@ fn profile_selection_menu(conn: &mut Connection, _username: &str) -> Result<()> 
             };
 
             let mut hvac = HVACSystem::new();
-            apply_profile(conn, &mut hvac, profile);
+            apply_profile(conn, &mut hvac, profile, username, user_role);
             println!("\n✓ Profile applied successfully!");
             wait_for_enter();
         }
@@ -125,7 +125,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 wait_for_enter();
             },
             "6" => {
-                hvac_control_menu(conn, username)?;
+                hvac_control_menu(conn, username, role)?;
             },
             "7" => {
                 println!("Retrieving outdoor weather status...");
@@ -135,7 +135,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 wait_for_enter();
             },
             "8" => {
-                show_system_status(conn)?;
+                show_system_status(conn, username, role)?;
             },
             "9" => {
                 manage_profiles_menu(conn, username, role)?;
@@ -222,7 +222,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
                 wait_for_enter();
             },
             "9" => {
-                profile_selection_menu(conn, username)?;
+                profile_selection_menu(conn, username, role)?;
             },
             "0" => {
                 println!("🔒 Logging out...");
@@ -284,7 +284,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
                 wait_for_enter();
             },
             "9" => {
-                profile_selection_menu(conn, username)?;
+                profile_selection_menu(conn, username, role)?;
             },
             "0" => {
                 println!("Logging out...");
@@ -305,7 +305,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
 // ===============================================================
 //                         HVAC CONTROL MENU
 // ===============================================================
-fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
+fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
     let mut hvac = hvac::HVACSystem::new();
     
     loop {
@@ -314,25 +314,8 @@ fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
         match prompt_input() {
             Some(choice) => match choice.trim() {
                 "1" => {
-                    println!("\n⚙️  Temperature must be between 16°C and 40°C");
-                    print!("Enter target temperature (°C): ");
-                    io::stdout().flush()?;
-                    if let Some(temp_str) = prompt_input() {
-                        if let Ok(temp) = temp_str.trim().parse::<f32>() {
-                            if hvac::HVACSystem::is_valid_temperature(temp) {
-                                hvac.set_target_temperature(conn, temp);
-                                println!("✓ Temperature set to {:.1}°C", temp);
-                            } else {
-                                println!("❌ Invalid temperature! Must be between 16°C and 40°C");
-                            }
-                        } else {
-                            println!("❌ Invalid temperature value");
-                        }
-                    }
-                }
-                "2" => {
-                    println!("\nSelect mode:");
-                    println!("[1] Heat  [2] Cool  [3] Auto  [4] Fan  [5] Off");
+                    println!("\n🌡️  Select HVAC Mode:");
+                    println!("[1] 🔥 Heating  [2] ❄️  Cooling  [3] 🤖 Auto  [4] 💨 Fan Only  [5] ⭕ Off");
                     if let Some(mode) = prompt_input() {
                         let new_mode = match mode.trim() {
                             "1" => hvac::HVACMode::Heating,
@@ -341,26 +324,64 @@ fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
                             "4" => hvac::HVACMode::FanOnly,
                             "5" => hvac::HVACMode::Off,
                             _ => {
-                                println!("Invalid mode selection");
+                                println!("❌ Invalid mode selection");
                                 continue;
                             }
                         };
-                        hvac.set_mode(conn, new_mode);
-                        println!("Mode set to {:?}", new_mode);
+                        
+                        let old_mode_str = format!("{:?}", hvac.mode);
+                        let old_temp = hvac.target_temperature;
+                        
+                        // Set temperature for modes that need it (not Off or FanOnly)
+                        if matches!(new_mode, hvac::HVACMode::Heating | hvac::HVACMode::Cooling | hvac::HVACMode::Auto) {
+                            let (min_temp, max_temp) = new_mode.temperature_range();
+                            println!("\n🌡️  Enter target temperature for {:?} mode ({:.0}-{:.0}°C):", new_mode, min_temp, max_temp);
+                            print!("Temperature: ");
+                            io::stdout().flush()?;
+                            
+                            if let Some(temp_str) = prompt_input() {
+                                if let Ok(temp) = temp_str.trim().parse::<f32>() {
+                                    if new_mode.is_valid_temperature_for_mode(temp) {
+                                        hvac.set_mode(conn, new_mode);
+                                        hvac.set_target_temperature(conn, temp);
+                                        
+                                        // Log both changes
+                                        let new_mode_str = format!("{:?}", new_mode);
+                                        let _ = db::log_mode_changed(conn, username, user_role, &old_mode_str, &new_mode_str);
+                                        let _ = db::log_temperature_changed(conn, username, user_role, old_temp, temp);
+                                        
+                                        println!("✅ Mode set to {:?} with target {:.1}°C", new_mode, temp);
+                                    } else {
+                                        println!("❌ Invalid temperature for {:?} mode! Must be between {:.0}°C and {:.0}°C", 
+                                                 new_mode, min_temp, max_temp);
+                                        continue;
+                                    }
+                                } else {
+                                    println!("❌ Invalid temperature value");
+                                    continue;
+                                }
+                            }
+                        } else {
+                            // Fan Only or Off - just set mode, no temperature needed
+                            hvac.set_mode(conn, new_mode);
+                            let new_mode_str = format!("{:?}", new_mode);
+                            let _ = db::log_mode_changed(conn, username, user_role, &old_mode_str, &new_mode_str);
+                            println!("✅ Mode set to {:?}", new_mode);
+                        }
                     }
                 }
-                "3" => {
+                "2" => {
                     hvac.update(conn);
                     wait_for_enter();
                 }
-                "4" => {
+                "3" => {
                     hvac.diagnostics(conn);
                     wait_for_enter();
                 }
-                "5" => {
-                    profile_selection_menu(conn, username)?;
+                "4" => {
+                    profile_selection_menu(conn, username, user_role)?;
                 }
-                "6" => break,
+                "5" => break,
                 _ => println!("Invalid option. Please try again."),
             },
             None => break,
@@ -372,7 +393,7 @@ fn hvac_control_menu(conn: &mut Connection, username: &str) -> Result<()> {
 // ===============================================================
 //                  SYSTEM STATUS (TIME + SCHEDULE)
 // ===============================================================
-fn show_system_status(conn: &mut Connection) -> Result<()> {
+fn show_system_status(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
     let now = Local::now();
     let time_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
     let scheduled = crate::profile::current_scheduled_profile();
@@ -383,7 +404,7 @@ fn show_system_status(conn: &mut Connection) -> Result<()> {
     if let Some(ans) = prompt_input() {
         if ans.trim().eq_ignore_ascii_case("y") {
             let mut hvac = HVACSystem::new();
-            apply_profile(conn, &mut hvac, scheduled);
+            apply_profile(conn, &mut hvac, scheduled, username, user_role);
         }
     }
     wait_for_enter();
@@ -426,11 +447,19 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
             // Optional greeting
             print!("Custom greeting (optional, Enter to skip): "); io::stdout().flush().ok();
             let greeting = prompt_input().map(|s| { let t = s.trim().to_string(); if t.is_empty(){ None } else { Some(t) } }).flatten();
+            
+            // Get old values for logging
+            let old_profile = db::get_profile_row(conn, &name).ok().flatten();
+            let old_mode = old_profile.as_ref().map(|p| p.mode.as_str());
+            let old_temp = old_profile.as_ref().map(|p| p.target_temp);
+            
             // No description editing per request
             db::update_profile_row(conn, &name, mode_str, temp, greeting.as_deref(), None)?;
+            
+            // Log profile edit to HVAC activity log
+            let _ = db::log_profile_edited(conn, admin_username, current_role, &name, old_mode, mode_str, old_temp, temp);
+            
             let desc = format!("Profile '{}' updated: mode={}, temp={:.1}", name, mode_str, temp);
-            // Logging temporarily disabled - old DB doesn't have 'HVAC' in CHECK constraint
-            // logger::log_event(conn, admin_username, None, "HVAC", Some(&desc))?;
             println!("✓ Saved (logged: {})", desc);
         } else if choice.eq_ignore_ascii_case("r") {
             print!("Enter profile name to reset (or 'all'): "); io::stdout().flush().ok();
@@ -438,15 +467,13 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
             if target.eq_ignore_ascii_case("all") {
                 for nm in ["Day","Night","Sleep","Party","Vacation","Away"].iter() {
                     db::reset_profile_to_default(conn, nm)?;
+                    let _ = db::log_profile_reset(conn, admin_username, current_role, nm);
                 }
-                // Logging temporarily disabled - old DB doesn't have 'HVAC' in CHECK constraint
-                // logger::log_event(conn, admin_username, None, "HVAC", Some("All profiles reset to defaults"))?;
                 println!("All profiles reset (logged).");
             } else {
                 db::reset_profile_to_default(conn, &target)?;
+                let _ = db::log_profile_reset(conn, admin_username, current_role, &target);
                 let msg = format!("Profile '{}' reset to defaults", target);
-                // Logging temporarily disabled - old DB doesn't have 'HVAC' in CHECK constraint
-                // logger::log_event(conn, admin_username, None, "HVAC", Some(&msg))?;
                 println!("{} (logged)", msg);
             }
         } else if let Ok(idx) = choice.parse::<usize>() {
@@ -459,7 +486,7 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
                     if t.eq_ignore_ascii_case("a") {
                         let mut hvac = HVACSystem::new();
                         let prof = match name.as_str() { "Day"=>HVACProfile::Day, "Night"=>HVACProfile::Night, "Sleep"=>HVACProfile::Sleep, "Party"=>HVACProfile::Party, "Vacation"=>HVACProfile::Vacation, _=>HVACProfile::Away };
-                        apply_profile(conn, &mut hvac, prof);
+                        apply_profile(conn, &mut hvac, prof, admin_username, current_role);
                     } else if t.eq_ignore_ascii_case("e") {
                         // loop back into edit branch by simulating 'E'
                         // Simpler: prompt again with E
@@ -478,7 +505,7 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 // ===============================================================
 //                         GUEST MENU
 // ===============================================================
-fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool> {
+fn guest_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
     match prompt_input() {
         Some(choice) => match choice.trim() {
             "1" => { 
@@ -498,9 +525,9 @@ fn guest_menu(conn: &mut Connection, username: &str, _role: &str) -> Result<bool
                 }
                 wait_for_enter();
             },
-            "4" => hvac_control_menu(conn, username)?,
+            "4" => hvac_control_menu(conn, username, role)?,
             "5" => {
-                profile_selection_menu(conn, username)?;
+                profile_selection_menu(conn, username, role)?;
             },
             "0" => {
                 println!("🔒 Logging out...");

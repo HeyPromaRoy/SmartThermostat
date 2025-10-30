@@ -131,6 +131,27 @@ pub fn init_system_db() -> Result<Connection> {
             description TEXT,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
+
+        -- ===============================
+        -- HVAC ACTIVITY LOG TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS hvac_activity_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT NOT NULL,
+            user_role TEXT NOT NULL,
+            action_type TEXT NOT NULL CHECK(
+                action_type IN ('PROFILE_APPLIED', 'PROFILE_EDITED', 'PROFILE_RESET', 'TEMPERATURE_CHANGED', 'MODE_CHANGED')
+            ),
+            profile_name TEXT,
+            old_value TEXT,
+            new_value TEXT,
+            description TEXT,
+            timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_hvac_log_username ON hvac_activity_log(username);
+        CREATE INDEX IF NOT EXISTS ix_hvac_log_timestamp ON hvac_activity_log(timestamp);
+        CREATE INDEX IF NOT EXISTS ix_hvac_log_action ON hvac_activity_log(action_type);
         "#,
     )
     .context("Failed to initialize tables in system.db")?;
@@ -603,6 +624,159 @@ pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
             params![def.name, def.mode, def.target_temp, def.greeting, def.description],
         )?;
     }
+    Ok(())
+}
+
+// ======================================================
+//              HVAC ACTIVITY LOGGING
+// ======================================================
+
+/// Log when a user applies a profile
+pub fn log_profile_applied(
+    conn: &Connection,
+    username: &str,
+    user_role: &str,
+    profile_name: &str,
+    mode: &str,
+    temperature: f32,
+) -> Result<()> {
+    let description = format!("Applied {} profile: mode={}, temp={:.1}°C", profile_name, mode, temperature);
+    conn.execute(
+        "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, new_value, description) 
+         VALUES (?1, ?2, 'PROFILE_APPLIED', ?3, ?4, ?5)",
+        params![username, user_role, profile_name, format!("{}|{:.1}", mode, temperature), description],
+    )?;
+    Ok(())
+}
+
+/// Log when a homeowner/admin edits a profile
+pub fn log_profile_edited(
+    conn: &Connection,
+    username: &str,
+    user_role: &str,
+    profile_name: &str,
+    old_mode: Option<&str>,
+    new_mode: &str,
+    old_temp: Option<f32>,
+    new_temp: f32,
+) -> Result<()> {
+    let old_value = old_mode.map(|m| format!("{}|{:.1}", m, old_temp.unwrap_or(0.0)));
+    let new_value = format!("{}|{:.1}", new_mode, new_temp);
+    let description = format!("Edited {} profile: mode {} -> {}, temp {:.1} -> {:.1}°C", 
+                             profile_name, 
+                             old_mode.unwrap_or("unknown"), 
+                             new_mode, 
+                             old_temp.unwrap_or(0.0), 
+                             new_temp);
+    conn.execute(
+        "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, old_value, new_value, description) 
+         VALUES (?1, ?2, 'PROFILE_EDITED', ?3, ?4, ?5, ?6)",
+        params![username, user_role, profile_name, old_value, new_value, description],
+    )?;
+    Ok(())
+}
+
+/// Log when a profile is reset to defaults
+pub fn log_profile_reset(
+    conn: &Connection,
+    username: &str,
+    user_role: &str,
+    profile_name: &str,
+) -> Result<()> {
+    let description = format!("Reset {} profile to default settings", profile_name);
+    conn.execute(
+        "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, description) 
+         VALUES (?1, ?2, 'PROFILE_RESET', ?3, ?4)",
+        params![username, user_role, profile_name, description],
+    )?;
+    Ok(())
+}
+
+/// Log when temperature is changed directly (not via profile)
+pub fn log_temperature_changed(
+    conn: &Connection,
+    username: &str,
+    user_role: &str,
+    old_temp: f32,
+    new_temp: f32,
+) -> Result<()> {
+    let description = format!("Changed temperature from {:.1}°C to {:.1}°C", old_temp, new_temp);
+    conn.execute(
+        "INSERT INTO hvac_activity_log (username, user_role, action_type, old_value, new_value, description) 
+         VALUES (?1, ?2, 'TEMPERATURE_CHANGED', ?3, ?4, ?5)",
+        params![username, user_role, format!("{:.1}", old_temp), format!("{:.1}", new_temp), description],
+    )?;
+    Ok(())
+}
+
+/// Log when HVAC mode is changed directly (not via profile)
+pub fn log_mode_changed(
+    conn: &Connection,
+    username: &str,
+    user_role: &str,
+    old_mode: &str,
+    new_mode: &str,
+) -> Result<()> {
+    let description = format!("Changed mode from {} to {}", old_mode, new_mode);
+    conn.execute(
+        "INSERT INTO hvac_activity_log (username, user_role, action_type, old_value, new_value, description) 
+         VALUES (?1, ?2, 'MODE_CHANGED', ?3, ?4, ?5)",
+        params![username, user_role, old_mode, new_mode, description],
+    )?;
+    Ok(())
+}
+
+/// View HVAC activity logs (for admins/homeowners)
+pub fn view_hvac_activity_log(conn: &Connection, username: &str, user_role: &str) -> Result<()> {
+    // Only admins and homeowners can view logs
+    if user_role != "admin" && user_role != "homeowner" {
+        println!("Access denied: Only admins and homeowners can view HVAC activity logs.");
+        return Ok(());
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT timestamp, username, user_role, action_type, profile_name, description 
+         FROM hvac_activity_log 
+         ORDER BY id DESC 
+         LIMIT 50"
+    )?;
+
+    let logs = stmt.query_map([], |r| {
+        Ok((
+            r.get::<_, String>(0)?,  // timestamp
+            r.get::<_, String>(1)?,  // username
+            r.get::<_, String>(2)?,  // user_role
+            r.get::<_, String>(3)?,  // action_type
+            r.get::<_, Option<String>>(4)?,  // profile_name
+            r.get::<_, Option<String>>(5)?,  // description
+        ))
+    })?;
+
+    println!("\n===== HVAC Activity Log (Last 50 entries) =====");
+    println!("{:<20} {:<15} {:<12} {:<20} {}", "Timestamp", "User", "Role", "Action", "Description");
+    println!("{}", "-".repeat(100));
+
+    let mut found_any = false;
+    for log in logs {
+        let (ts, user, role, action, profile, desc) = log?;
+        found_any = true;
+        
+        // Convert UTC to EST for display
+        let ts_display = to_eastern_time(&ts).unwrap_or(ts);
+        let profile_str = profile.unwrap_or_else(|| "-".to_string());
+        let desc_str = desc.unwrap_or_else(|| "".to_string());
+        
+        println!("{:<20} {:<15} {:<12} {:<20} {}", 
+                 ts_display, user, role, 
+                 format!("{}:{}", action, profile_str), 
+                 desc_str);
+    }
+
+    if !found_any {
+        println!("(No HVAC activity logged yet.)");
+    }
+
+    println!("{}", "-".repeat(100));
     Ok(())
 }
 

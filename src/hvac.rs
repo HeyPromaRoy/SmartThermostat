@@ -21,6 +21,33 @@ pub struct HVACSystem {
 pub const MIN_TEMPERATURE: f32 = 16.0;
 pub const MAX_TEMPERATURE: f32 = 40.0;
 
+// Temperature ranges for each mode
+// Updated per request: Heating 25–32°C, Cooling 16–22°C
+pub const HEATING_MIN: f32 = 25.0;
+pub const HEATING_MAX: f32 = 32.0;
+pub const COOLING_MIN: f32 = 16.0;
+pub const COOLING_MAX: f32 = 22.0;
+pub const AUTO_MIN: f32 = 18.0;
+pub const AUTO_MAX: f32 = 28.0;
+
+impl HVACMode {
+    /// Get the temperature range for a specific mode
+    pub fn temperature_range(&self) -> (f32, f32) {
+        match self {
+            HVACMode::Heating => (HEATING_MIN, HEATING_MAX),
+            HVACMode::Cooling => (COOLING_MIN, COOLING_MAX),
+            HVACMode::Auto => (AUTO_MIN, AUTO_MAX),
+            HVACMode::FanOnly | HVACMode::Off => (MIN_TEMPERATURE, MAX_TEMPERATURE),
+        }
+    }
+
+    /// Check if temperature is valid for this mode
+    pub fn is_valid_temperature_for_mode(&self, temp: f32) -> bool {
+        let (min, max) = self.temperature_range();
+        temp >= min && temp <= max
+    }
+}
+
 impl HVACSystem {
     pub fn new() -> Self {
         Self {
@@ -85,38 +112,55 @@ impl HVACSystem {
         let current_temp = match senser::get_indoor_temperature() {
             Ok(temp) => temp,
             Err(_) => {
-                println!("Sensor error, defaulting to 22.0°C.");
+                println!("⚠️  Sensor error, defaulting to 22.0°C.");
                 22.0
             }
         };
 
         match self.mode {
             HVACMode::Heating if current_temp < self.target_temperature => {
-                println!("Heating ON → Current: {:.1}°C | Target: {:.1}°C", current_temp, self.target_temperature);
+                println!("\n🔥 HEATER ON → Warming up your space!");
+                println!("   Current: {:.1}°C | Target: {:.1}°C | Mode: Heating", current_temp, self.target_temperature);
                 let _ = logger::log_event(conn, "system", None, "HVAC", Some("Heating activated"));
             }
+            HVACMode::Heating => {
+                println!("\n🔥 Heater running → Temperature reached!");
+                println!("   Current: {:.1}°C | Target: {:.1}°C | Mode: Heating", current_temp, self.target_temperature);
+            }
             HVACMode::Cooling if current_temp > self.target_temperature => {
-                println!("Cooling ON → Current: {:.1}°C | Target: {:.1}°C", current_temp, self.target_temperature);
+                println!("\n❄️  AC ON → Cooling down your space!");
+                println!("   Current: {:.1}°C | Target: {:.1}°C | Mode: Cooling", current_temp, self.target_temperature);
                 let _ = logger::log_event(conn, "system", None, "HVAC", Some("Cooling activated"));
             }
+            HVACMode::Cooling => {
+                println!("\n❄️  AC running → Temperature reached!");
+                println!("   Current: {:.1}°C | Target: {:.1}°C | Mode: Cooling", current_temp, self.target_temperature);
+            }
             HVACMode::FanOnly => {
-                println!("Fan mode active.");
+                println!("\n💨 FAN ONLY MODE → Circulating fresh air!");
+                println!("   🔥 Heater: OFF  |  ❄️  AC: OFF  |  💨 Fan: ON");
+                println!("   Current: {:.1}°C (no temperature control)", current_temp);
                 let _ = logger::log_event(conn, "system", None, "HVAC", Some("Fan mode active"));
             }
             HVACMode::Auto => {
                 if current_temp < self.target_temperature - 0.5 {
-                    println!("Auto mode: Heating...");
+                    println!("\n🤖 AUTO MODE → 🔥 Heater activated!");
+                    println!("   Current: {:.1}°C | Target: {:.1}°C | Heating to reach target", current_temp, self.target_temperature);
                     let _ = logger::log_event(conn, "system", None, "HVAC", Some("Auto heating started"));
                 } else if current_temp > self.target_temperature + 0.5 {
-                    println!("Auto mode: Cooling...");
+                    println!("\n🤖 AUTO MODE → ❄️  AC activated!");
+                    println!("   Current: {:.1}°C | Target: {:.1}°C | Cooling to reach target", current_temp, self.target_temperature);
                     let _ = logger::log_event(conn, "system", None, "HVAC", Some("Auto cooling started"));
                 } else {
-                    println!("Auto mode: Stable at {:.1}°C", current_temp);
+                    println!("\n🤖 AUTO MODE → ✅ Perfect temperature!");
+                    println!("   Current: {:.1}°C | Target: {:.1}°C | Maintaining comfort", current_temp, self.target_temperature);
                 }
             }
-            _ => {
-                println!("HVAC idle.");
-                let _ = logger::log_event(conn, "system", None, "HVAC", Some("Idle state"));
+            HVACMode::Off => {
+                println!("\n⭕ HVAC SYSTEM OFF");
+                println!("   🔥 Heater: OFF  |  ❄️  AC: OFF  |  💨 Fan: OFF");
+                println!("   Current: {:.1}°C (no climate control)", current_temp);
+                let _ = logger::log_event(conn, "system", None, "HVAC", Some("System off"));
             }
         }
     }
