@@ -1,1 +1,12 @@
 /target
+
+# Ignore temporary files
+*.tmp
+*.log
+
+# Ignore editor and IDE specific files
+*.swp
+.vscode
+
+# Ignore specific files
+sqlite3
