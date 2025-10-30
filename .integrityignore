@@ -1,0 +1,9 @@
+^db/
+^data/
+\.sqlite$
+\.db$
+\.log$
+^target/
+^\.git/
+^INTEGRITY\.sha256$
+
