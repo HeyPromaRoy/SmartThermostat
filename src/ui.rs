@@ -121,7 +121,7 @@ let bar_color = Color::Red;
     println!("{}{}", spacing2, "[1] Show my profile   |  [6] Clear user lockouts".color(Color::White));
     println!("{}{}", spacing2, "[2] Register a user   |  [7] Indoor sensing".color(Color::White));
     println!("{}{}", spacing2, "[3] View user(s)      |  [8] Outdoor weather".color(Color::White));
-    println!("{}{}", spacing2, "[4] Manage Users      |  [9] Profile settings".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Users      |  [9] Choose Profile".color(Color::White));
     println!("{}{}", spacing2, "[5] View security logs|".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
 

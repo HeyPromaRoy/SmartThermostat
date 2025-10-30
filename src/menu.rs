@@ -138,8 +138,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 show_system_status(conn)?;
             },
             "9" => {
-                println!("Profile settings (coming soon)...");
-                wait_for_enter();
+                manage_profiles_menu(conn, username, role)?;
             },
 
             "0" => {
@@ -223,7 +222,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
                 wait_for_enter();
             },
             "9" => {
-                manage_profiles_menu(conn, username, role)?;
+                profile_selection_menu(conn, username)?;
             },
             "0" => {
                 println!("🔒 Logging out...");
@@ -395,7 +394,10 @@ fn show_system_status(conn: &mut Connection) -> Result<()> {
 //                  ADMIN: MANAGE PROFILE SETTINGS
 // ===============================================================
 fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_role: &str) -> Result<()> {
-    if current_role != "admin" { println!("Access denied: Only admins can manage profiles."); return Ok(()); }
+    if current_role != "homeowner" && current_role != "admin" { 
+        println!("Access denied: Only homeowners and admins can manage profiles."); 
+        return Ok(()); 
+    }
 
     loop {
         println!("\n===== Profile Settings =====");
