@@ -15,8 +15,8 @@ use sha2::{Digest, Sha256};
 use std::{fs, path::Path};
 
 fn main() -> Result<()> {
-    let integrityCheck = false;
-    if integrityCheck {
+    let integrity_check = false;
+    if integrity_check {
         // 1) Check the hash list file is exist
         let manifest = "INTEGRITY.sha256";
         if !Path::new(manifest).exists() {
