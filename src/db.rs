@@ -11,7 +11,7 @@ use zeroize::Zeroizing;
 
 use crate::auth;
 use crate::logger;
-
+use crate::weather::WeatherRecord;
 
 // Converts UTC timestamp strings (e.g. "2025-10-18 13:32:39") into America/New_York time (EDT/EST).
 fn to_eastern_time(utc_str: &str) -> Option<String> {
@@ -780,3 +780,28 @@ pub fn view_hvac_activity_log(conn: &Connection, username: &str, user_role: &str
     Ok(())
 }
 
+pub fn insert_weather(conn: &mut Connection, data: &WeatherRecord) -> Result<()> {
+
+    let tx = conn.transaction()?;
+    {
+        // Use parameterized query -> avoid SQL injection
+        let mut stmt = tx.prepare_cached(
+            "INSERT INTO weather (time, temperature_f, temperature_c, dewpoint_f, dewpoint_c, humidity, wind_speed_mph, wind_direction_deg, condition)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+        )?;
+
+        stmt.execute(params![
+            &data.time,
+            data.temperature_f,
+            data.temperature_c,
+            data.dewpoint_f,
+            data.dewpoint_c,
+            data.humidity,
+            data.wind_speed_mph,
+            data.wind_direction_deg,
+            &data.condition,
+        ])?;
+    }
+    tx.commit()?; // If excute fail, rollback
+    Ok(())
+}

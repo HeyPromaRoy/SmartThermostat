@@ -3,7 +3,8 @@ use chrono::{DateTime, Utc};
 use chrono_tz::America::New_York;
 use reqwest::blocking::Client;
 use serde::Deserialize;
-use crate::db::get_connection;
+use rusqlite::Connection;
+use crate::db;
 
 #[derive(Debug, Deserialize)]
 pub struct ObservationResponse {
@@ -12,12 +13,12 @@ pub struct ObservationResponse {
 
 #[derive(Debug, Deserialize)]
 pub struct ObservationProperties {
-    pub text_description: Option<String>,
+    pub textDescription: Option<String>,
     pub temperature: Option<Measurement>,
     pub dewpoint: Option<Measurement>,
-    pub relative_humidity: Option<Measurement>,
-    pub wind_speed: Option<Measurement>,
-    pub wind_direction: Option<Measurement>,
+    pub relativeHumidity: Option<Measurement>,
+    pub windSpeed: Option<Measurement>,
+    pub windDirection: Option<Measurement>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -60,12 +61,12 @@ pub fn fetch_weather() -> Result<WeatherRecord> {
 
     let temp_c = resp.properties.temperature.and_then(|m| m.value);
     let dew_c = resp.properties.dewpoint.and_then(|m| m.value);
-    let humidity = resp.properties.relative_humidity.and_then(|m| m.value);
-    let wind_ms = resp.properties.wind_speed.and_then(|m| m.value);
-    let wind_dir = resp.properties.wind_direction.and_then(|m| m.value);
+    let humidity = resp.properties.relativeHumidity.and_then(|m| m.value);
+    let wind_ms = resp.properties.windSpeed.and_then(|m| m.value);
+    let wind_dir = resp.properties.windDirection.and_then(|m| m.value);
     let condition = resp
         .properties
-        .text_description
+        .textDescription
         .unwrap_or_else(|| "Unknown".into())
         .chars()
         .take(200)
@@ -91,27 +92,7 @@ pub fn fetch_weather() -> Result<WeatherRecord> {
     })
 }
 
-pub fn insert_weather(data: &WeatherRecord) -> Result<()> {
-    let conn = get_connection()?;
-    conn.execute(
-        "INSERT INTO weather (time, temperature_f, temperature_c, dewpoint_f, dewpoint_c, humidity, wind_speed_mph, wind_direction_deg, condition)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
-        (
-            &data.time,
-            data.temperature_f,
-            data.temperature_c,
-            data.dewpoint_f,
-            data.dewpoint_c,
-            data.humidity,
-            data.wind_speed_mph,
-            data.wind_direction_deg,
-            &data.condition,
-        ),
-    )?;
-    Ok(())
-}
-
-pub fn get_current_weather() -> Result<()> {
+pub fn get_current_weather(conn: &mut Connection) -> Result<()> {
     let data = fetch_weather()?;
 
     println!("🌈✨=============================================✨🌈");
@@ -132,6 +113,6 @@ pub fn get_current_weather() -> Result<()> {
     println!("🕒  Time: {}", data.time);
     println!("🌈✨=============================================✨🌈");
 
-    insert_weather(&data)?;
+    db::insert_weather(conn, &data)?;
     Ok(())
 }

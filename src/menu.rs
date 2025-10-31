@@ -129,7 +129,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
             },
             "7" => {
                 println!("Retrieving outdoor weather status...");
-                if let Err(e) = weather::get_current_weather() {
+                if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
@@ -216,7 +216,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
             },
             "8" => {
                 println!("Outdoor weather data...");
-                if let Err(e) = weather::get_current_weather() {
+                if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
@@ -278,7 +278,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             },
             "8" => {
                 println!("Outdoor weather data...");
-                if let Err(e) = weather::get_current_weather() {
+                if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
@@ -520,7 +520,7 @@ fn guest_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
             },
             "3" => {
             println!("Retrieving outdoor weather statu...");
-                if let Err(e) = weather::get_current_weather() {
+                if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
