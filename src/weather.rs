@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use chrono_tz::America::New_York;
 use reqwest::blocking::Client;
+use reqwest::redirect::Policy;
 use serde::Deserialize;
 use rusqlite::Connection;
 use crate::db;
@@ -39,13 +40,15 @@ pub struct WeatherRecord {
 }
 
 pub fn fetch_weather() -> Result<WeatherRecord> {
-    let client = Client::builder()
-        .timeout(std::time::Duration::from_secs(10))
-        .build()
-        .context("building http client")?;
 
     let station = "KNYC"; // Central Park station (near CCNY)
     let url = format!("https://api.weather.gov/stations/{}/observations/latest", station);
+
+    let client = Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .redirect(Policy::none())
+        .build()
+        .context("building http client")?;
 
     let resp = client
         .get(&url)
