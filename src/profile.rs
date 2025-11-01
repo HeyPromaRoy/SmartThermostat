@@ -28,12 +28,12 @@ impl HVACProfile {
 
     pub fn description(self) -> &'static str {
         match self {
-            HVACProfile::Day => "Auto mode, comfort-oriented, 21-23°C / 24-26°C, Auto fan, Comfort",
-            HVACProfile::Night => "Auto or steady heating/cooling, 20°C heating / 25°C cooling, Low fan speed, Moderate",
-            HVACProfile::Sleep => "Heating preferred, quiet fan, 18-20°C heating / 26-28°C cooling, Fan off/low, Energy saving",
-            HVACProfile::Party => "Cooling with ventilation, 22°C heating / 23-24°C cooling, Medium-high fan, Comfort prioritized",
-            HVACProfile::Vacation => "HVAC mostly off, 16-18°C heating / 29-30°C cooling, Fan off, Max energy saving",
-            HVACProfile::Away => "HVAC off/eco mode, 17-18°C heating / 28°C cooling, Fan off, Energy saving",
+            HVACProfile::Day => "Auto mode, comfort-oriented\n     21-23°C heating / 24-26°C cooling\n     Auto fan speed\n     Comfort prioritized\n     Heater: Auto | AC: Auto",
+            HVACProfile::Night => "Auto or steady heating/cooling\n     20°C heating / 25°C cooling\n     Low fan speed\n     Moderate comfort\n     Heater: Auto | AC: Auto",
+            HVACProfile::Sleep => "Heating preferred, quiet operation\n     18-20°C heating / 26-28°C cooling\n     Fan off/low speed\n     Energy saving mode\n     Heater: On | AC: Off",
+            HVACProfile::Party => "Cooling with ventilation\n     22°C heating / 23-24°C cooling\n     Medium-high fan speed\n     Comfort prioritized\n     Heater: Off | AC: On",
+            HVACProfile::Vacation => "HVAC mostly off\n     16-18°C heating / 29-30°C cooling\n     Fan off\n     Max energy saving\n     Heater: Off | AC: Off",
+            HVACProfile::Away => "HVAC off/eco mode\n     17-18°C heating / 28°C cooling\n     Fan off\n     Energy saving\n     Heater: Off | AC: Off",
         }
     }
     
@@ -85,20 +85,36 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     hvac.set_mode(conn, mode);
     hvac.set_target_temperature(conn, temperature);
     
-    // Display greeting and time/schedule first
+    // Display profile application with decorative format
     let greet = greeting_opt.as_deref().unwrap_or(profile.greeting_message());
-    println!("\n{}", greet);
     let now = Local::now();
-    println!("Current time: {}", now.format("%Y-%m-%d %H:%M:%S %Z"));
+    let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
     let scheduled = current_scheduled_profile();
-    if scheduled == profile {
-        println!("Scheduled profile window: {:?} (within window ✅)", scheduled);
-    } else {
-        println!("Scheduled profile window: {:?} (you selected {:?})", scheduled, profile);
-    }
-    println!("");
+    let desc = description_opt.as_deref().unwrap_or(profile.description());
     
-    hvac.update(conn);
+    println!("🌈✨=============================================✨🌈");
+    println!("🏡  HVAC Profile Applied");
+    println!();
+    println!("📋  Profile: {:?}", profile);
+    println!();
+    println!("{}", greet);
+    println!();
+    println!("⚙️  Mode: {:?}", mode);
+    println!();
+    println!("🎯  Target Temperature: {:.1}°C", temperature);
+    println!();
+    
+    if scheduled == profile {
+        println!("⏰  Schedule: Within {:?} window ✅", scheduled);
+    } else {
+        println!("⏰  Schedule: {:?} window (manual override)", scheduled);
+    }
+    println!();
+    println!("📝  Description: {}", desc);
+    println!();
+    println!("🕒  Time: {}", time_str);
+    println!("🌈✨=============================================✨🌈");
+    
     let profile_name = name.clone();
     
     // Log to security_log (existing)
@@ -113,9 +129,6 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     // Log to HVAC activity log (new tracking)
     let mode_str = format!("{:?}", mode);
     let _ = db::log_profile_applied(conn, username, user_role, &profile_name, &mode_str, temperature);
-    
-    let desc = description_opt.as_deref().unwrap_or(profile.description());
-    println!("Applied profile: {}", desc);
 }
 
 // Determine current scheduled profile based on local time windows.

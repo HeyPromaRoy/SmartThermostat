@@ -227,6 +227,7 @@ pub fn hvac_control_ui() {
     print!("{}","Select an option [1-5]: ".bold().color(Color::Cyan));
 }
 
+#[allow(dead_code)]
 pub fn hvac_status_ui(temp: f32, target: f32, mode: &str, status: &str) {
     let bar_color = Color::Cyan;
     let title_color = Color::BrightYellow;

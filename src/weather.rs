@@ -13,6 +13,7 @@ pub struct ObservationResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(non_snake_case)]
 pub struct ObservationProperties {
     pub textDescription: Option<String>,
     pub temperature: Option<Measurement>,

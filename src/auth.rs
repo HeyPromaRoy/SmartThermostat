@@ -339,7 +339,7 @@ lazy_static! {
 pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
     // Single in-process session guard
    { 
-    let mut active = ACTIVE_SESSION
+    let active = ACTIVE_SESSION
         .lock()
         .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
     if let Some(ref current) = *active {

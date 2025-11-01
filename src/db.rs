@@ -727,7 +727,8 @@ pub fn log_mode_changed(
 }
 
 /// View HVAC activity logs (for admins/homeowners)
-pub fn view_hvac_activity_log(conn: &Connection, username: &str, user_role: &str) -> Result<()> {
+#[allow(dead_code)]
+pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &str) -> Result<()> {
     // Only admins and homeowners can view logs
     if user_role != "admin" && user_role != "homeowner" {
         println!("Access denied: Only admins and homeowners can view HVAC activity logs.");
