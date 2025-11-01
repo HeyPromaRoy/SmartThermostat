@@ -255,7 +255,7 @@ pub fn username_is_valid(username: &str) -> bool {
 }
 
 // Validates password strength (upper, lower, digit, special)
-fn password_is_strong(password: &str, username: &str) -> bool {
+pub fn password_is_strong(password: &str, username: &str) -> bool {
     if password.to_lowercase().contains(&username.to_lowercase()) {
         eprintln!("Password should not contain the username.");
         return false;

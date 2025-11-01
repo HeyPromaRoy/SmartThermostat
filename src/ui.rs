@@ -87,12 +87,12 @@ pub fn user_login_ui() {
 pub fn homeowner_ui() {
     let bar_color = Color::Magenta;
     let menu_bar = "=".repeat(46);
-    let menu_spc = " ".repeat(14);
+    let menu_spc = " ".repeat(11);
     let spacing1 = " ".repeat(7);
     let spacing2 = " ".repeat(8);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}{}", spacing1, menu_spc, "USER MAIN MENU".bold().color(Color::BrightYellow));
+    println!("{}{}{}", spacing1, menu_spc, "HOMEOWNER MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] View profile              |  [6] HVAC Control".color(Color::White));
@@ -155,12 +155,12 @@ pub fn technician_ui(){
 pub fn guest_ui() {
     let bar_color = Color::BrightBlue;
     let menu_bar = "=".repeat(46);
-    let menu_spc = " ".repeat(23);
+    let menu_spc = " ".repeat(14);
     let spacing1 = " ".repeat(7);
     let spacing2 = " ".repeat(20);
 
     println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}", menu_spc, "GUEST MAIN MENU".bold().color(Color::BrightYellow));
+    println!("{}{}{}", spacing1, menu_spc, "GUEST MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] View Profile".color(Color::White));
