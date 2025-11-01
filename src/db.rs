@@ -46,7 +46,7 @@
  
  // end_session: deletes the user's active session used in auth::logout_user 
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use base64::{Engine, engine::general_purpose};
 use blake3;
 use chrono::{DateTime, Utc, NaiveDateTime};
@@ -1342,3 +1342,4 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32) -
     Ok(())
 
 }
+
