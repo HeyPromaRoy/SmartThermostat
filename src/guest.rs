@@ -1,7 +1,7 @@
-use anyhow::{Context, Result};
+use anyhow::{Result};
 use rpassword::read_password; // hidden password entry for CLI
 use std::io::{self, Write}; // reading inputs and printing prompts
-use zeroize::Zeroize; // used for sensitive data are wiped from the memory after use
+use zeroize::Zeroizing; // used for sensitive data are wiped from the memory after use
 use rusqlite::{params, Connection, OptionalExtension}; // handle for executing SQL queries
 
 use crate::logger;
@@ -12,6 +12,24 @@ use crate::ui;
 
 // Guest login using PIN authentication
 pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
+    // Single in-process session guard
+   { 
+    let active = auth::ACTIVE_SESSION
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
+    if let Some(ref current) = *active {
+        println!("User '{current}' is already logged in. Please log out first.");
+        return Ok(None);
+        }
+    }
+    
+    db::update_session(conn, None)?;
+
+    if logger::session_lockout_check(conn, None)? {
+        println!("Session temporarily locked due to repeated failed attempts.");
+        return Ok(None);
+    }
+
     // Prompt for username
     print!("Guest username: ");
     io::stdout().flush().ok();
@@ -29,11 +47,16 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
         return Ok(None);
     }
 
+    if logger::session_lockout_check(conn, Some(&username))? {
+    println!("Session temporarily locked due to repeated failed attempts.");
+    return Ok(None);
+    }
+
     // Ask for guest PIN (hidden input)
     print!("Enter PIN: ");
     io::stdout().flush().ok();
-    let pin = read_password().context("Failed to read PIN")?;
-    let pin = pin.trim().to_string();
+    let pin_in = Zeroizing::new(read_password()?);
+    let pin = pin_in.trim_end_matches(['\r', '\n']); // &str view; buffer wiped on drop
 
     // Fetch stored hash for this guest user
     let row = conn
@@ -53,6 +76,8 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
             let _ = auth::verify_password(&pin, &fake_hash); // fake verify to normalize timing
             logger::fake_verification_delay();
             logger::record_login_attempt(conn, &username, false)?;
+            logger::increment_session_fail(conn, None)?;
+            logger::session_lockout_check(conn, None)?;
             println!("Invalid username or password.");
             return Ok(None);
         }
@@ -62,6 +87,8 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
     if !auth::verify_password(&pin, &stored_hash)? {
         logger::fake_verification_delay();
         logger::record_login_attempt(conn, &username, false)?;
+        logger::increment_session_fail(conn, Some(&username))?;
+        logger::session_lockout_check(conn, Some(&username))?;
         println!("Invalid username or password.");
         return Ok(None);
     }
@@ -106,7 +133,7 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
 
     // Success: record login + create new session (stores only hash; returns plaintext token)
     logger::record_login_attempt(conn, &username, true)?;
-    let _session_token_plain = db::update_session(conn, &username)?; // DO NOT persist
+    let _session_token_plain = db::update_session(conn, Some(&username))?; // DO NOT persist
 
     // Reflect the session in-process so logout_user can find it (CLI guard)
     {
@@ -245,9 +272,7 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
     // List all guests owned by this homeowner
     let mut stmt = conn.prepare(
         "SELECT username, is_active, created_at, last_login_time
-         FROM users
-         WHERE user_status = 'guest'
-           AND homeowner_id = ?1
+         FROM users WHERE user_status = 'guest' AND homeowner_id = ?1
          ORDER BY created_at DESC",
     )?;
 
@@ -308,8 +333,8 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
     println!("\nPlease verify your identity to disable '{}':", guest_username);
     print!("Enter your password: ");
     io::stdout().flush().ok();
-    let password = read_password().context("Failed to read password")?;
-    let password = password.trim().to_string();
+    let pw_in = Zeroizing::new(read_password()?);
+    let password = pw_in.trim_end_matches(['\r', '\n']);
 
     // Fetch stored hash for the homeowner
     let stored_hash_opt: Option<String> = conn
@@ -329,10 +354,6 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
             false
         }
     };
-
-    // Immediately zeroize password from memory
-    let mut clear_pw = password;
-    clear_pw.zeroize();
 
     // Authentication check
     if !auth_success {
@@ -420,8 +441,8 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
     println!("\nPlease verify your identity to delete '{}':", guest_username);
     print!("Enter your password: ");
     io::stdout().flush().ok();
-    let password = read_password().context("Failed to read password")?;
-    let password = password.trim().to_string();
+    let pw_in = Zeroizing::new(read_password()?);
+    let password = pw_in.trim_end_matches(['\r', '\n']);
 
     // Fetch the homeowner’s Argon2 hash
     let stored_hash_opt: Option<String> = conn
@@ -443,9 +464,6 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
         }
     };
 
-    // Zeroize password from memory
-    let mut clear_pw = password;
-    clear_pw.zeroize();
 
     if !auth_success {
         println!("Authentication failed. Action canceled.");
@@ -540,14 +558,12 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
     println!("\nPlease verify your identity before resetting '{}':", guest_username);
     print!("Enter your password: ");
     io::stdout().flush().ok();
-    let password = read_password().context("Failed to read password")?;
-    let password = password.trim().to_string();
+    let pw_in = Zeroizing::new(read_password()?);
+    let password = pw_in.trim_end_matches(['\r', '\n']);
 
     let stored_hash_opt: Option<String> = conn
         .query_row(
-            "SELECT hashed_password
-             FROM users
-             WHERE id = ?1 AND user_status = 'homeowner'",
+            "SELECT hashed_password FROM users WHERE id = ?1 AND user_status = 'homeowner'",
             params![homeowner_id],
             |r| r.get(0),
         )
@@ -561,9 +577,6 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
         }
     };
 
-    let mut clear_pw = password;
-    clear_pw.zeroize();
-
     if !auth_success {
         println!("Authentication failed. Action canceled.");
         return Ok(());
@@ -572,19 +585,17 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
     //Prompt for new PIN (min 6 chars)
     print!("\nEnter new PIN for '{}': ", guest_username);
     io::stdout().flush().ok();
-    let mut new_pin = String::new();
-    io::stdin().read_line(&mut new_pin)?;
-    let new_pin = new_pin.trim().to_string();
+    let new_pin_in: Zeroizing<String> = Zeroizing::new(read_password()?);
+    let new_pin_trimmed: &str = new_pin_in.trim_end_matches(['\r','\n']);
 
-    if new_pin.len() < 6 {
+    if new_pin_trimmed.len() < 6 {
         println!("PIN must be at least 6 characters long.");
         return Ok(());
     }
 
     //Hash new PIN securely (Argon2id)
-    let hashed_pin = crate::auth::hash_password(&new_pin)?;
-    let mut pin_to_zeroize = new_pin;
-    pin_to_zeroize.zeroize();
+    let hashed_pin = crate::auth::hash_password(&new_pin_trimmed)?;
+
 
     // Update guest’s PIN atomically
    drop(stmt);
@@ -612,18 +623,72 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
 }
 
 
-pub fn manage_guests_menu(conn: &mut Connection, owner_id: i64, homeowner_username: &str) -> Result<()> {
+pub fn manage_guests_menu(conn: &mut Connection, _owner_id: i64, 
+    acting_username: &str, acting_role: &str, homeowner_username: &str) -> Result<()> {
+    
+     // Resolve homeowner
+    let homeowner_id = match db::get_user_id_and_role(conn, homeowner_username)? {
+        Some((id, role)) if role == "homeowner" => id,
+        _ => {
+            println!("Invalid homeowner '{}'.", homeowner_username);
+            return Ok(());
+        }
+    };
+
+    // Technician step-up auth
+    if acting_role == "technician" {
+        if !db::tech_has_perm(conn, acting_username, homeowner_username)? {
+            println!("Access denied: no active job grant for '{}'.", homeowner_username);
+            return Ok(());
+        }
+
+        println!("\nSecurity check for technician '{}'", acting_username);
+        print!("Enter your technician password: ");
+        io::stdout().flush().ok();
+
+        let pw_in: Zeroizing<String> = Zeroizing::new(read_password()?);
+        let pw_trimmed: &str = pw_in.trim_end_matches(['\r', '\n']);
+
+        let stored_hash_opt: Option<String> = conn
+            .query_row(
+                "SELECT hashed_password FROM users
+                 WHERE username = ?1 COLLATE NOCASE AND user_status = 'technician'",
+                params![acting_username],
+                |r| r.get(0),
+            )
+            .optional()?;
+
+        let auth_ok = stored_hash_opt
+            .as_deref()
+            .map_or(false, |h| crate::auth::verify_password(pw_trimmed, h).unwrap_or(false));
+        if !auth_ok {
+            println!("Authentication failed. Returning.");
+            return Ok(());
+        }
+    }
+
+    // ---- Main loop ----
     loop {
+        if acting_role == "technician"
+            && !db::tech_has_perm(conn, acting_username, homeowner_username)?
+        {
+            println!("Grant expired or revoked for '{}'.", homeowner_username);
+            break;
+        }
+
         ui::manage_guest_menu();
-
+        
         let mut choice = String::new();
-        std::io::stdin().read_line(&mut choice)?;
-        let choice = choice.trim();
+        let n = std::io::stdin().read_line(&mut choice)?;
+        if n == 0 {
+            println!("Input closed. Returning to Menu...");
+            break;
+        }
 
-        match choice {
+        match choice.trim() {
             "1" => {
                 println!("\n======= Reset Guest PIN =======");
-                if let Err(e) = reset_guest_pin(conn, owner_id, homeowner_username) {
+                if let Err(e) = reset_guest_pin(conn, homeowner_id, homeowner_username) {
                     println!("Error: {}", e);
                 }
             }
@@ -632,41 +697,46 @@ pub fn manage_guests_menu(conn: &mut Connection, owner_id: i64, homeowner_userna
                 println!("[1] Enable Guest");
                 println!("[2] Disable Guest");
                 print!("Select an option [1-2]: ");
-                std::io::stdout().flush().ok();
+                io::stdout().flush().ok();
 
                 let mut sub_choice = String::new();
-                std::io::stdin().read_line(&mut sub_choice).ok();
-                let sub_choice = sub_choice.trim();
-
-                match sub_choice {
-                    "1" => {
-                        if let Err(e) = enable_guest(conn, owner_id, homeowner_username) {
-                            println!("Error: {}", e);
+                let m = std::io::stdin().read_line(&mut sub_choice).unwrap_or(0);
+                if m == 0 {
+                    println!("Input closed. Returning...");
+                } else {
+                    match sub_choice.trim() {
+                        "1" => {
+                            if let Err(e) = enable_guest(conn, homeowner_id, homeowner_username) {
+                                println!("Error: {}", e);
+                            }
                         }
-                    }
-                    "2" => {
-                        if let Err(e) = disable_guest(conn, owner_id, homeowner_username) {
-                            println!("Error: {}", e);
+                        "2" => {
+                            if let Err(e) = disable_guest(conn, homeowner_id, homeowner_username) {
+                                println!("Error: {}", e);
+                            }
                         }
+                        _ => println!("Invalid sub-option."),
                     }
-                    _ => println!("Invalid sub-option."),
                 }
             }
-            "3" => {println!("\n======= Delete Guest =======");
-        if let Err(e) = delete_guest(conn, owner_id, homeowner_username) {
-            println!("Error: {}", e);
-        }
-    }
+            "3" => {
+                println!("\n======= Delete Guest =======");
+                if let Err(e) = delete_guest(conn, homeowner_id, homeowner_username) {
+                    println!("Error: {}", e);
+                }
+            }
             "4" => {
-                println!("Returning to Homeowner Menu...");
+                println!("Returning to Menu...");
                 break;
             }
-            _ => println!("Invalid choice, please enter 1–3."),
+            _ => println!("Invalid choice, please enter 1–4."),
         }
 
-        println!("\nPress ENTER to continue...");
+        print!("\nPress ENTER to continue...");
+        io::stdout().flush().ok();
         let mut dummy = String::new();
-        std::io::stdin().read_line(&mut dummy).ok();
+        let _ = std::io::stdin().read_line(&mut dummy);
+        println!();
     }
 
     Ok(())
