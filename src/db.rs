@@ -1,3 +1,51 @@
+/******************************************************
+===============         db.rs           ===============
+*******************************************************/
+// This module defines all SQLite database setup and access functions for the smart thermostat system. 
+// This handles user management, session tracking, technician access, and event logging.
+
+// init_system_db: Initializes the system.db database where
+// we apply secure PRAGMA (special type of statement allows for interaction
+// with the internal state and configuration of the db engine) and creating
+// all necessary tables (users, logs, lockouts, technician_jobs, sessions, weather, profiles).
+
+// get_connection: returns a reusuable database connection and initializing db if required.
+
+// user_exists: checks whether a username exists within the db.
+
+// get_user_id_and_role: gets the users ID number and role (admin, tech, homeowner, guest).
+
+// insert_user: used for registration purposes which inserts a new user data, logging the event and 
+// commiting change atomically (either the operation succeeds or nothing changes) using transaction
+
+// show_own_profile: displays the user details such as ID #, role, creation time, last login in EDT
+
+// list_guests_of_homeowner: list the guest accounts under specific homeowner acct.
+
+// view_all_users: List all registered users (with admin access) showing their enable status, creation and login time.
+
+// manage_user_status: allows admin to enable or disable user accounts with logging and re-auth.
+
+// ======== Techinician Related ========
+ // grant_technician_access: Homeowner grants technician temporary access to a homeowner's system for a specific
+ // period of time (30-120 minutes) with validation of roles, and event logging
+
+ //access_job: allow a technician to activate a job if it's still valid, marked as "TECH_ACCESS"
+ // or expires if the access expires.
+
+ //sweep_expire_grants: expires technician access grants where time has passed, logged in security logs
+
+ // tech_has_perm: Determines whether a technician has permission to act on the target homeowner's acct.
+
+ // list_active_grants: lists all active technician access grants 
+
+// ======== Session Mgmt ========
+ // new_session_token: generates a random 32-byte session token, which returns the hashed form for storing it in DB
+
+ // update_session: replace any previous session for the user with a new one, with an expiration date of 10 minutes, and return a new token
+ 
+ // end_session: deletes the user's active session used in auth::logout_user 
+
 use anyhow::{Context, Result};
 use base64::{Engine, engine::general_purpose};
 use blake3;
@@ -96,13 +144,51 @@ pub fn init_system_db() -> Result<Connection> {
         -- ===============================
         CREATE TABLE IF NOT EXISTS session_state (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            username TEXT UNIQUE COLLATE NOCASE,
             session_token_hash TEXT UNIQUE,
             login_time TEXT DEFAULT CURRENT_TIMESTAMP,
             last_active_time TEXT,
             session_expires TEXT,
+            failed_attempts INTEGER DEFAULT 0,
+            is_locked INTEGER DEFAULT 0,
+            locked_until TEXT,
+            session_lock_count INTEGER DEFAULT 0,
             FOREIGN KEY(username) REFERENCES users(username) ON DELETE CASCADE ON UPDATE CASCADE
         );
+
+        -- ===============================
+        --      TECHNICIAN JOB TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS technician_jobs (
+            job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            homeowner_username  TEXT NOT NULL COLLATE NOCASE
+                REFERENCES users(username) ON DELETE RESTRICT,
+            technician_username TEXT NOT NULL COLLATE NOCASE
+                REFERENCES users(username) ON DELETE RESTRICT,
+            status TEXT NOT NULL
+                CHECK (status IN ('ACCESS_GRANTED','TECH_ACCESS','ACCESS_EXPIRED')),
+            access_minutes INTEGER NOT NULL
+                CHECK (access_minutes IN (30,60,90,120)),
+
+            grant_start   TEXT NOT NULL DEFAULT (datetime('now')),
+            grant_expires TEXT GENERATED ALWAYS AS (
+                datetime(grant_start, printf('+%d minutes', access_minutes))
+                ) VIRTUAL,
+
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+            job_desc TEXT NOT NULL
+                CHECK (
+                length(job_desc) BETWEEN 20 AND 200
+                AND job_desc NOT LIKE '%' || char(10) || '%'
+                AND job_desc NOT LIKE '%' || char(13) || '%'
+                ),
+            notes TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS ix_jobs_access
+        ON technician_jobs (homeowner_username, technician_username, status, updated_at);
 
         -- ===============================
         -- WEATHER TABLE
@@ -460,6 +546,264 @@ pub fn manage_user_status(conn: &mut Connection, admin_username: &str, current_r
     Ok(())
 }
 
+// ======================================================
+//                   TECHNICIANS
+// ======================================================
+
+pub fn grant_technician_access(conn: &mut Connection, 
+    homeowner_username: &str, technician_username: &str, 
+    access_minutes: i64, job_desc_raw: &str) -> Result<i64> {
+    
+        //validate access time
+    if ![30, 60, 90, 120].contains(&access_minutes) {
+        return Err(anyhow!("Invalid access time; must be one of 30, 60, 90, 120."));
+    }
+    
+    // sanitize and length bounds
+    let mut desc = job_desc_raw.trim().to_string();
+    desc.retain(|c| !c.is_control());
+    let desc = desc.split_whitespace().collect::<Vec<_>>().join(" ");
+    if desc.is_empty() {
+        return Err(anyhow!("Description cannot be empty."));
+    }
+    let len = desc.chars().count();
+    if len < 20 || len > 200 {
+        return Err(anyhow!("Description must be 20–200 characters (current: {}).", len));
+    }
+    
+    //validation of actors and their roles
+    let (h_role, h_active): (String, i64) = conn.query_row(
+        "SELECT user_status, is_active FROM users WHERE username = ?1 COLLATE NOCASE",
+        params![homeowner_username],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).context("Failed to fetch homeowner record")?;
+
+    if h_role != "homeowner" || h_active != 1 {
+        return Err(anyhow!("Invalid homeowner account or account is inactive."));
+    }
+
+    let (t_role, t_active): (String, i64) = conn.query_row(
+        "SELECT user_status, is_active FROM users WHERE username = ?1 COLLATE NOCASE",
+        params![technician_username],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    ).context("Failed to fetch technician record")?;
+
+    if t_role != "technician" || t_active != 1 {
+        return Err(anyhow!("Invalid technician account or account is inactive."));
+    }
+
+  // insert & transaction
+    let job_id = {
+        let tx = conn.transaction()?;
+        tx.execute(
+            r#"
+            INSERT INTO technician_jobs
+                (homeowner_username, technician_username, status, access_minutes, job_desc, updated_at)
+            VALUES (?1, ?2, 'ACCESS_GRANTED', ?3, ?4, datetime('now'))
+            "#,
+            // PASS &desc so it is NOT moved and can be reused below
+            params![homeowner_username, technician_username, access_minutes, &desc],
+        )?;
+        let jid = tx.last_insert_rowid();
+        tx.commit()?; // <-- commit before logging to avoid E0502
+        jid
+    };
+    
+    if let Err(e) = logger::log_event(conn, homeowner_username, Some(technician_username), "ACCESS_GRANTED",
+        Some(&format!("job_id={}, minutes={}, desc={}", job_id, access_minutes, desc)),
+    ) {
+        eprintln!("(log_event failed: {e})");
+    }
+
+    Ok(job_id)
+}
+
+
+pub fn access_job(conn: &Connection, job_id: i64, technician_username: &str) -> Result<Option<(String, String, String)>> {
+    // Load & validate ownership
+    let row = conn
+        .query_row(
+            r#"
+            SELECT homeowner_username, job_desc, grant_expires, status
+              FROM technician_jobs
+             WHERE job_id = ?1
+               AND technician_username = ?2 COLLATE NOCASE
+            "#,
+            params![job_id, technician_username],
+            |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?)),
+        )
+        .optional()?
+        .ok_or_else(|| anyhow!("Job not found or not assigned to you"))?;
+    let (homeowner, desc, expires, _status) = row;
+
+    // Try to claim TECH_ACCESS if still valid
+    let claimed = conn.execute(
+        r#"
+        UPDATE technician_jobs
+           SET status = 'TECH_ACCESS', updated_at = datetime('now')
+         WHERE job_id = ?1
+           AND technician_username = ?2 COLLATE NOCASE
+           AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+           AND grant_expires > datetime('now')
+        "#,
+        params![job_id, technician_username],
+    )?;
+    if claimed > 0 {
+        let _ = crate::logger::log_event(
+            conn, technician_username, Some(&homeowner),
+            "TECH_ACCESS", Some(&format!("job_id={} | desc={}", job_id, desc)),
+        );
+        return Ok(Some((homeowner, desc, expires)));
+    }
+
+    // Otherwise flip to ACCESS_EXPIRED if it really is expired now
+    let flipped = conn.execute(
+        r#"
+        UPDATE technician_jobs
+           SET status = 'ACCESS_EXPIRED', updated_at = datetime('now')
+         WHERE job_id = ?1
+           AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+           AND grant_expires <= datetime('now')
+        "#,
+        params![job_id],
+    )?;
+    if flipped > 0 {
+        let _ = crate::logger::log_event(
+            conn, technician_username, Some(&homeowner),
+            "ACCESS_EXPIRED", Some(&format!("job_id={}", job_id)),
+        );
+    }
+
+    Ok(None)
+}
+
+// Flip any grants that have expired right now to ACCESS_EXPIRED.
+// Returns how many rows were updated. Best-effort logs per row.
+pub fn sweep_expire_grants(conn: &Connection) -> Result<usize> {
+    let mut stmt = conn.prepare(
+        r#"
+        UPDATE technician_jobs
+           SET status = 'ACCESS_EXPIRED',
+               updated_at = datetime('now')
+         WHERE status IN ('ACCESS_GRANTED', 'TECH_ACCESS')
+           AND grant_expires <= datetime('now')
+         RETURNING job_id, homeowner_username, technician_username
+        "#,
+    )?;
+
+    let mut rows = stmt.query([])?;
+    let mut changed = 0usize;
+
+    while let Some(r) = rows.next()? {
+        let job_id: i64 = r.get(0)?;
+        let homeowner_username: String = r.get(1)?;
+        let technician_username: String = r.get(2)?;
+        changed += 1;
+
+        // Best-effort logging; don't fail the sweep if logs fail
+        let _ = crate::logger::log_event(
+            conn,
+            &technician_username,
+            Some(&homeowner_username),
+            "ACCESS_EXPIRED",
+            Some(&format!("job_id={}", job_id)),
+        );
+    }
+
+    Ok(changed)
+}
+
+
+pub fn tech_has_perm(conn: &Connection, acting_username: &str, homeowner_username: &str) -> Result<bool> {
+    
+    let _ = crate::db::sweep_expire_grants(conn);
+
+    //fetch roles/enabled once
+    let target: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT user_status, is_active FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![homeowner_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        ).optional()?;
+
+    let Some((target_role, target_active)) = target else {
+        // Unknown target -> deny
+        return Ok(false);
+    };
+    
+    if target_role != "homeowner" || target_active != 1 {
+        // Not a live homeowner account -> deny
+        return Ok(false);
+    }
+    let actor: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT user_status, is_active FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+
+    let Some((actor_role, actor_active)) = actor else { return Ok(false); };
+    
+    if actor_active != 1 { return Ok(false); }
+
+    // Admins can act on anyone
+    if actor_role == "admin" { return Ok(true);}
+
+    // A homeowner can act on themselves
+    if actor_role == "homeowner" && acting_username.eq_ignore_ascii_case(homeowner_username)
+    { return Ok(true); }
+
+    // Technicians need an active, time-boxed grant
+    if actor_role == "technician" {
+        // Reuse the same grant logic you use elsewhere
+        let ok: Option<i64> = conn
+            .query_row(
+                r#"
+                SELECT 1
+                  FROM technician_jobs
+                 WHERE technician_username = ?1 COLLATE NOCASE AND homeowner_username  = ?2 COLLATE NOCASE AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+                   AND datetime(updated_at, printf('+%d minutes', access_minutes)) > datetime('now')
+                 LIMIT 1
+                "#,
+                params![acting_username, homeowner_username],
+                |r| r.get(0),
+            )
+            .optional()?;
+        return Ok(ok.is_some());
+    }
+
+    // Guests or other roles: deny
+    Ok(false)
+}
+
+// List all active technician assignments
+pub fn list_active_grants(conn: &Connection, username: &str) -> Result<()> {
+    
+    let _ = crate::db::sweep_expire_grants(conn);
+
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT job_id, homeowner_username, technician_username, status, grant_start, grant_expires, access_minutes
+        FROM technician_jobs
+        WHERE (homeowner_username = ?1 COLLATE NOCASE OR technician_username = ?1 COLLATE NOCASE)
+          AND grant_expires > datetime('now')
+          AND status = 'ACCESS_GRANTED'
+        ORDER BY grant_expires DESC
+        "#
+    )?;
+    let mut rows = stmt.query(params![username])?;
+    println!("Active grants visible to '{}':", username);
+    println!("{:<8} {:<15} {:<15} {:<12} {:<20} {:<20} {:<5}",
+        "job_id","homeowner","technician","status","start","expires","mins");
+    while let Some(r) = rows.next()? {
+        let (jid,h,t,st,gs,ge,m):(i64,String,String,String,String,String,i64) =
+            (r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?);
+        println!("{:<8} {:<15} {:<15} {:<12} {:<20} {:<20} {:<5}", jid,h,t,st,gs,ge,m);
+    }
+    Ok(())
+}
+
 
 // ======================================================
 //                          TOKEN
@@ -467,13 +811,18 @@ pub fn manage_user_status(conn: &mut Connection, admin_username: &str, current_r
 
 fn new_session_token() -> (Zeroizing<String>, String) {
     let mut buf = [0u8; 32];
-    OsRng.fill_bytes(&mut buf);
+    let mut rng = OsRng;
+    TryRngCore::try_fill_bytes(&mut rng, &mut buf).expect("OS RNG failed");
+
 
     // Plain token returned to caller (for headers/cookies/in-memory)
     let token_plain = Zeroizing::new(general_purpose::URL_SAFE_NO_PAD.encode(buf));
-
+    
     // Hash stored in DB (hex)
     let token_hash_hex = blake3::hash(&buf).to_hex().to_string();
+    // Wipe the temporary random buffer
+    buf.fill(0);
+
     (token_plain, token_hash_hex)
 }
 
@@ -481,25 +830,90 @@ fn new_session_token() -> (Zeroizing<String>, String) {
     - Marks old sessions as inactive
     - Inserts a new session record with expiry 30 min from now
     - Returns the session_token for in-memory tracking */
-pub fn update_session(conn: &Connection, username: &str) -> Result<String> {
-    conn.execute(
-        "DELETE FROM session_state WHERE username = ?1",
-        params![username],
-    )?;
+pub fn update_session(conn: &Connection, username: Option<&str>) -> Result<String> {
+    let where_clause = if username.is_some() {
+        "username = ?1"
+    } else {
+        "username IS NULL"
+    };
 
+    // Delete only expired sessions
+    if let Some(u) = username {
+    conn.execute(
+        &format!(
+            "DELETE FROM session_state WHERE {} AND session_expires <= datetime('now')",
+            where_clause
+        ),
+    params![u],
+    )?;
+    } else {
+    conn.execute(
+        &format!(
+            "DELETE FROM session_state WHERE {} AND session_expires <= datetime('now')",
+            where_clause
+        ),
+        [], // no parameters
+    )?;
+    }
+
+    // Check if an active session already exists
+    let has_live_session: Option<i64> = if let Some(u) = username {
+        conn.query_row(
+            &format!(
+                "SELECT 1 FROM session_state WHERE {} AND session_expires > datetime('now') LIMIT 1",
+                where_clause
+            ),
+            rusqlite::params![u],
+            |r| r.get(0),
+        ).optional()?
+    } else {
+        conn.query_row(
+            &format!(
+                "SELECT 1 FROM session_state WHERE {} AND session_expires > datetime('now') LIMIT 1",
+                where_clause
+            ),
+            [],
+            |r| r.get(0),
+        ).optional()?
+    };
+
+    //Refresh expiry if session already exists
+    if has_live_session.is_some() {
+        if let Some(u) = username {
+            conn.execute(
+                &format!(
+                    "UPDATE session_state SET session_expires = datetime('now', '+10 minutes') WHERE {}",
+                    where_clause
+                ),
+                rusqlite::params![u],
+            )?;
+        } else {
+            conn.execute(
+                &format!(
+                    "UPDATE session_state SET session_expires = datetime('now', '+10 minutes') WHERE {}",
+                    where_clause
+                ),
+                [],
+            )?;
+        }
+        return Ok("<existing-session>".to_string());
+    }
+
+    // Generate a new token
     let (token_plain, token_hash_hex) = new_session_token();
 
     let expires = Utc::now() + chrono::Duration::minutes(10);
     let expires_str = expires.format("%Y-%m-%d %H:%M:%S").to_string();
 
     conn.execute(
-        "INSERT INTO session_state (username, session_token_hash, login_time, session_expires)
-         VALUES (?1, ?2, datetime('now'), ?3)",
+        "INSERT INTO session_state 
+         (username, session_token_hash, login_time, session_expires, failed_attempts, is_locked)
+         VALUES (?1, ?2, datetime('now'), ?3, 0, 0)",
         params![username, token_hash_hex, expires_str],
     )?;
 
-    // Give the caller the plaintext token (not stored in DB)
-    Ok(token_plain.to_string())}
+    Ok(token_plain.to_string())
+}
 
 // Delete the active session of the user
 pub fn end_session(conn: &Connection, username: &str) -> Result<()> {
@@ -926,4 +1340,5 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32) -
         params![mode, target_temperature],
     )?;
     Ok(())
+
 }
