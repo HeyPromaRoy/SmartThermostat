@@ -63,6 +63,7 @@ fn run_app() -> Result<()> {
     // Initialize unified system database (users + logs + lockouts)
     let mut conn = db::get_connection().expect("Failed to initialize system database.");
 
+    let _anon_token = db::update_session(&conn, None)?;
     // Show front page UI
     ui::front_page_ui();
 
@@ -75,6 +76,7 @@ fn run_app() -> Result<()> {
                     ui::user_login_ui();
                     match auth::login_user(&conn) {
                         Ok(Some((username, role))) => {
+                            let _token = db::update_session(&conn, Some(&username))?;
                             // Proceed to role-based menu
                             menu::main_menu(&mut conn, &username, &role)?;
                         }
@@ -115,6 +117,7 @@ fn run_app() -> Result<()> {
 
                 // === [4] EXIT ===
                 "4" => {
+                    let _ = db::end_session(&conn, "");
                     println!("Goodbye!");
                     break;
                 }
