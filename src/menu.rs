@@ -208,23 +208,6 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
                     println!("No input detected. Returning to menu.");
                 }
             }
-            "7" => {
-                println!("🌡 Checking indoor temperature...");
-                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
-                    eprintln!("dashboard error: {e}");
-                }
-                wait_for_enter();
-            },
-            "8" => {
-                println!("Outdoor weather data...");
-                if let Err(e) = weather::get_current_weather(conn) {
-                    eprintln!("❌ Error: {:?}", e);
-                }
-                wait_for_enter();
-            },
-            "9" => {
-                profile_selection_menu(conn, username, role)?;
-            },
             "0" => {
                 println!("🔒 Logging out...");
                 auth::logout_user(conn)?;
@@ -410,12 +393,25 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
                                         hvac.set_mode(conn, new_mode);
                                         hvac.set_target_temperature(conn, temp);
                                         
+                                        // Prompt for light status
+                                        println!("\n💡 Light/Lamp: [1] ON  [2] OFF");
+                                        print!("Choice: ");
+                                        io::stdout().flush()?;
+                                        if let Some(light_choice) = prompt_input() {
+                                            let light_status = match light_choice.trim() {
+                                                "1" => "ON",
+                                                "2" => "OFF",
+                                                _ => "OFF", // Default to OFF
+                                            };
+                                            hvac.set_light_status(conn, light_status);
+                                        }
+                                        
                                         // Log both changes
                                         let new_mode_str = format!("{:?}", new_mode);
                                         let _ = db::log_mode_changed(conn, username, user_role, &old_mode_str, &new_mode_str);
                                         let _ = db::log_temperature_changed(conn, username, user_role, old_temp, temp);
                                         
-                                        println!("✅ Mode set to {:?} with target {:.1}°C", new_mode, temp);
+                                        println!("✅ Mode set to {:?} with target {:.1}°C, Light: {}", new_mode, temp, hvac.light_status);
                                     } else {
                                         println!("❌ Invalid temperature for {:?} mode! Must be between {:.0}°C and {:.0}°C", 
                                                  new_mode, min_temp, max_temp);
@@ -427,11 +423,25 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
                                 }
                             }
                         } else {
-                            // Fan Only or Off - just set mode, no temperature needed
+                            // Fan Only or Off - just set mode and light, no temperature needed
                             hvac.set_mode(conn, new_mode);
+                            
+                            // Prompt for light status
+                            println!("\n💡 Light/Lamp: [1] ON  [2] OFF");
+                            print!("Choice: ");
+                            io::stdout().flush()?;
+                            if let Some(light_choice) = prompt_input() {
+                                let light_status = match light_choice.trim() {
+                                    "1" => "ON",
+                                    "2" => "OFF",
+                                    _ => "OFF", // Default to OFF
+                                };
+                                hvac.set_light_status(conn, light_status);
+                            }
+                            
                             let new_mode_str = format!("{:?}", new_mode);
                             let _ = db::log_mode_changed(conn, username, user_role, &old_mode_str, &new_mode_str);
-                            println!("✅ Mode set to {:?}", new_mode);
+                            println!("✅ Mode set to {:?}, Light: {}", new_mode, hvac.light_status);
                         }
                     }
                 }
