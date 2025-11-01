@@ -1,14 +1,5 @@
-mod ui;
-mod auth;
-mod guest;
-mod db;
-mod logger;
-mod menu;
-mod weather;
-mod senser;
-mod function;
-mod hvac;
-mod profile;
+mod auth; mod db; mod function; mod guest; mod hvac;
+mod logger; mod menu; mod ui;  mod profile; mod senser; mod weather;
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
