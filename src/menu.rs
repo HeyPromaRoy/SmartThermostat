@@ -103,7 +103,7 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
             }
             "3" => {db::list_guests_of_homeowner(conn, username)?;}
             "4" => {
-                guest::manage_guests_menu(conn, homeowner_id, username)?;},
+                guest::manage_guests_menu(conn, homeowner_id, username, role, username)?;},
             "5" => {
                 println!("🌡 Checking indoor temperature...");
                 if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
@@ -560,3 +560,4 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
+
