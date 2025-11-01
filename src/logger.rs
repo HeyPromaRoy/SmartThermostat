@@ -2,7 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use chrono_tz::America::New_York;
 use rand::Rng;
-use rusqlite::{params, Connection, OptionalExtension, ToSql};
+use rusqlite::{params, params_from_iter, Connection, OptionalExtension, ToSql};
 use std::{fs::OpenOptions, io::{self, Write}, thread, time::Duration as StdDuration};
 
 // ------------------ PARAMETERS ------------------
@@ -474,5 +474,6 @@ pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role:
     println!("{}", "-".repeat(130));
     Ok(())
 }
+
 
 
