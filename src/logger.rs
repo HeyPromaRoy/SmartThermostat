@@ -17,7 +17,7 @@ pub fn now_est() -> DateTime<chrono_tz::Tz> {
 
 // Small random delay to prevent timing attacks
 pub fn fake_verification_delay() {
-    let delay_ms: u64 = rand::thread_rng().gen_range(100..=250);
+    let delay_ms: u64 = rand::rng().random_range(100..=250);
     thread::sleep(StdDuration::from_millis(delay_ms));
 }
 
@@ -474,6 +474,7 @@ pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role:
     println!("{}", "-".repeat(130));
     Ok(())
 }
+
 
 
 
