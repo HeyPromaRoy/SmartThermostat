@@ -153,7 +153,8 @@ fn test_password_strength() {
     /// Test that the `new()` constructor initializes HVACSystem correctly
     #[test]
     fn test_new_hvac_system() {
-        let hvac = HVACSystem::new();
+        let conn = test_db();
+        let hvac = HVACSystem::new(&conn);
         // By default, mode should be Off
         assert_eq!(hvac.mode, HVACMode::Off);
         // Default target temperature should be 22.0°C
@@ -176,7 +177,7 @@ fn test_password_strength() {
     #[test]
     fn test_set_mode() {
         let conn = test_db();
-        let mut hvac = HVACSystem::new();
+        let mut hvac = HVACSystem::new(&conn);
 
         // Set mode to Heating
         hvac.set_mode(&conn, HVACMode::Heating);
@@ -191,7 +192,7 @@ fn test_password_strength() {
     #[test]
     fn test_set_target_temperature_within_limits() {
         let conn = test_db();
-        let mut hvac = HVACSystem::new();
+        let mut hvac = HVACSystem::new(&conn);
 
         hvac.set_target_temperature(&conn, 25.0);
         // Temperature should be set exactly as requested
@@ -202,7 +203,7 @@ fn test_password_strength() {
     #[test]
     fn test_set_target_temperature_below_min() {
         let conn = test_db();
-        let mut hvac = HVACSystem::new();
+        let mut hvac = HVACSystem::new(&conn);
 
         hvac.set_target_temperature(&conn, 10.0);
         // Should automatically set to MIN_TEMPERATURE
@@ -213,7 +214,7 @@ fn test_password_strength() {
     #[test]
     fn test_set_target_temperature_above_max() {
         let conn = test_db();
-        let mut hvac = HVACSystem::new();
+        let mut hvac = HVACSystem::new(&conn);
 
         hvac.set_target_temperature(&conn, 50.0);
         // Should automatically set to MAX_TEMPERATURE
@@ -224,7 +225,7 @@ fn test_password_strength() {
     #[test]
     fn test_diagnostics_runs() {
         let conn = test_db();
-        let hvac = HVACSystem::new();
+        let hvac = HVACSystem::new(&conn);
         hvac.diagnostics(&conn);
         // No assert needed: we just want to ensure it runs without crashing
     }
@@ -248,7 +249,7 @@ fn test_mock_senser_usage() {
     #[test]
     fn test_update_auto_mode_heating() {
         let conn = test_db();
-        let mut hvac = HVACSystem::new();
+        let mut hvac = HVACSystem::new(&conn);
         hvac.mode = HVACMode::Auto;
         hvac.target_temperature = 25.0;
 

@@ -41,7 +41,7 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                 }
             };
 
-            let mut hvac = HVACSystem::new();
+            let mut hvac = HVACSystem::new(conn);
             apply_profile(conn, &mut hvac, profile, username, user_role);
             println!("\n✓ Profile applied successfully!");
             wait_for_enter();
@@ -306,7 +306,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
 //                         HVAC CONTROL MENU
 // ===============================================================
 fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
-    let mut hvac = hvac::HVACSystem::new();
+    let mut hvac = hvac::HVACSystem::new(conn);
     
     loop {
         ui::hvac_control_ui();
@@ -403,7 +403,7 @@ fn show_system_status(conn: &mut Connection, username: &str, user_role: &str) ->
     println!("Apply this scheduled profile now? (y/n)");
     if let Some(ans) = prompt_input() {
         if ans.trim().eq_ignore_ascii_case("y") {
-            let mut hvac = HVACSystem::new();
+            let mut hvac = HVACSystem::new(conn);
             apply_profile(conn, &mut hvac, scheduled, username, user_role);
         }
     }
@@ -484,7 +484,7 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
                 if let Some(act) = prompt_input() {
                     let t = act.trim().to_string();
                     if t.eq_ignore_ascii_case("a") {
-                        let mut hvac = HVACSystem::new();
+                        let mut hvac = HVACSystem::new(conn);
                         let prof = match name.as_str() { "Day"=>HVACProfile::Day, "Night"=>HVACProfile::Night, "Sleep"=>HVACProfile::Sleep, "Party"=>HVACProfile::Party, "Vacation"=>HVACProfile::Vacation, _=>HVACProfile::Away };
                         apply_profile(conn, &mut hvac, prof, admin_username, current_role);
                     } else if t.eq_ignore_ascii_case("e") {

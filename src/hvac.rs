@@ -54,10 +54,30 @@ impl HVACMode {
 }
 
 impl HVACSystem {
-    pub fn new() -> Self {
-        Self {
-            mode: HVACMode::Off,
-            target_temperature: 22.0,
+    /// Create new HVAC system, loading state from database
+    pub fn new(conn: &Connection) -> Self {
+        // Try to load from database, fallback to default if error
+        match crate::db::get_hvac_state(conn) {
+            Ok((mode_str, temp)) => {
+                let mode = match mode_str.as_str() {
+                    "Heating" => HVACMode::Heating,
+                    "Cooling" => HVACMode::Cooling,
+                    "FanOnly" => HVACMode::FanOnly,
+                    "Auto" => HVACMode::Auto,
+                    _ => HVACMode::Off,
+                };
+                Self {
+                    mode,
+                    target_temperature: temp,
+                }
+            }
+            Err(_) => {
+                // Fallback to default if database read fails
+                Self {
+                    mode: HVACMode::Off,
+                    target_temperature: 22.0,
+                }
+            }
         }
     }
     
@@ -68,6 +88,17 @@ impl HVACSystem {
 
     pub fn set_mode(&mut self, conn: &Connection, mode: HVACMode) {
         self.mode = mode;
+        
+        // Save to database
+        let mode_str = match mode {
+            HVACMode::Off => "Off",
+            HVACMode::Heating => "Heating",
+            HVACMode::Cooling => "Cooling",
+            HVACMode::FanOnly => "FanOnly",
+            HVACMode::Auto => "Auto",
+        };
+        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature);
+        
         let _ = logger::log_event(
             conn,
             "system",
@@ -111,6 +142,16 @@ impl HVACSystem {
                 Some(&format!("Target temperature set to {:.1}°C", temperature)),
             );
         }
+        
+        // Save to database
+        let mode_str = match self.mode {
+            HVACMode::Off => "Off",
+            HVACMode::Heating => "Heating",
+            HVACMode::Cooling => "Cooling",
+            HVACMode::FanOnly => "FanOnly",
+            HVACMode::Auto => "Auto",
+        };
+        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature);
     }
 
     pub fn update(&self, conn: &Connection) {

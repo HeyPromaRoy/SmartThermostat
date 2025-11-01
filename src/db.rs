@@ -156,6 +156,19 @@ pub fn init_system_db() -> Result<Connection> {
         CREATE INDEX IF NOT EXISTS ix_hvac_log_username ON hvac_activity_log(username);
         CREATE INDEX IF NOT EXISTS ix_hvac_log_timestamp ON hvac_activity_log(timestamp);
         CREATE INDEX IF NOT EXISTS ix_hvac_log_action ON hvac_activity_log(action_type);
+
+        -- ===============================
+        -- HVAC SYSTEM STATE TABLE
+        -- ===============================
+        CREATE TABLE IF NOT EXISTS hvac_state (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+            target_temperature REAL NOT NULL,
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+        );
+
+        -- Initialize with default state if empty
+        INSERT OR IGNORE INTO hvac_state (id, mode, target_temperature) VALUES (1, 'Off', 22.0);
         "#,
     )
     .context("Failed to initialize tables in system.db")?;
@@ -894,5 +907,23 @@ pub fn insert_weather(conn: &mut Connection, data: &WeatherRecord) -> Result<()>
         ])?;
     }
     tx.commit()?; // If excute fail, rollback
+    Ok(())
+}
+
+/// Get current HVAC state from database
+pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32)> {
+    let mut stmt = conn.prepare("SELECT mode, target_temperature FROM hvac_state WHERE id = 1")?;
+    let result = stmt.query_row([], |row| {
+        Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?))
+    })?;
+    Ok(result)
+}
+
+/// Save current HVAC state to database
+pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32) -> Result<()> {
+    conn.execute(
+        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        params![mode, target_temperature],
+    )?;
     Ok(())
 }

@@ -95,8 +95,22 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     let now = Local::now();
     let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
     let scheduled = current_scheduled_profile();
-    let desc = description_opt.as_deref().unwrap_or(profile.description());
     let temp_f = celsius_to_fahrenheit(temperature);
+    
+    // Build description with actual heater/AC status from database
+    let desc = if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
+        // Use database values for heater and AC status
+        let heater_display = if row.heater_status == "ON" { "ON" } else { "OFF" };
+        let ac_display = if row.ac_status == "ON" { "ON" } else { "OFF" };
+        
+        format!(
+            "Temperature: {:.1}°C / {:.1}°F\n🔥 Heater: {} | ❄️ AC: {}",
+            temperature, temp_f, heater_display, ac_display
+        )
+    } else {
+        // Fallback to default description if database read fails
+        description_opt.as_deref().unwrap_or(profile.description()).to_string()
+    };
     
     println!("🌈✨=============================================✨🌈");
     println!("🏡  HVAC Profile Applied");
