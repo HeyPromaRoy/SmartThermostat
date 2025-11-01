@@ -298,7 +298,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             },
             "8" => {
                 println!("Outdoor weather data...");
-                if let Err(e) = weather::get_current_weather() {
+                if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
@@ -560,4 +560,5 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
+
 
