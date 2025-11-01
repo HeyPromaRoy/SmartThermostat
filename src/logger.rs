@@ -6,7 +6,7 @@ use rusqlite::{params, Connection, OptionalExtension, ToSql};
 use std::{fs::OpenOptions, io::{self, Write}, thread, time::Duration as StdDuration};
 
 // ------------------ PARAMETERS ------------------
-pub const MAX_ATTEMPTS: usize = 5;          // Max failed attempts before lockout
+pub const MAX_ATTEMPTS: i64 = 5;          // Max failed attempts before lockout
 const LOCKOUT_SECONDS_BASE: i64 = 30;   // Initial lockout (30s)
 const MAX_LOCKOUT_SECONDS: i64 = 300;   // Max lockout cap (5 minutes)
 
@@ -474,4 +474,5 @@ pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role:
     println!("{}", "-".repeat(130));
     Ok(())
 }
+
 
