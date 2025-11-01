@@ -1,11 +1,12 @@
-pub mod senser;
-pub mod weather;
-pub mod db;
 pub mod auth;
+pub mod db;
 pub mod function;
 pub mod guest;
 pub mod hvac;
 pub mod logger;
 pub mod menu;
-pub mod ui;
 pub mod profile;
+pub mod senser;
+pub mod technician;
+pub mod ui;
+pub mod weather;
