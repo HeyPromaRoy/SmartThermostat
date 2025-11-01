@@ -4,6 +4,11 @@ use crate::logger;
 use crate::db;
 use chrono::{Local, Timelike};
 
+/// Convert Celsius to Fahrenheit
+pub fn celsius_to_fahrenheit(celsius: f32) -> f32 {
+    (celsius * 9.0 / 5.0) + 32.0
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HVACProfile {
     Day,
@@ -28,12 +33,12 @@ impl HVACProfile {
 
     pub fn description(self) -> &'static str {
         match self {
-            HVACProfile::Day => "Auto mode, comfort-oriented\n     21-23°C heating / 24-26°C cooling\n     Auto fan speed\n     Comfort prioritized\n     Heater: Auto | AC: Auto",
-            HVACProfile::Night => "Auto or steady heating/cooling\n     20°C heating / 25°C cooling\n     Low fan speed\n     Moderate comfort\n     Heater: Auto | AC: Auto",
-            HVACProfile::Sleep => "Heating preferred, quiet operation\n     18-20°C heating / 26-28°C cooling\n     Fan off/low speed\n     Energy saving mode\n     Heater: On | AC: Off",
-            HVACProfile::Party => "Cooling with ventilation\n     22°C heating / 23-24°C cooling\n     Medium-high fan speed\n     Comfort prioritized\n     Heater: Off | AC: On",
-            HVACProfile::Vacation => "HVAC mostly off\n     16-18°C heating / 29-30°C cooling\n     Fan off\n     Max energy saving\n     Heater: Off | AC: Off",
-            HVACProfile::Away => "HVAC off/eco mode\n     17-18°C heating / 28°C cooling\n     Fan off\n     Energy saving\n     Heater: Off | AC: Off",
+            HVACProfile::Day => "Auto mode, comfort-oriented\n     21-23°C / 70-73°F heating | 24-26°C / 75-79°F cooling\n     Auto fan speed\n     Comfort prioritized\n     🔥 Heater: Auto | ❄️ AC: Auto",
+            HVACProfile::Night => "Auto or steady heating/cooling\n     20°C / 68°F heating | 25°C / 77°F cooling\n     Low fan speed\n     Moderate comfort\n     🔥 Heater: Auto | ❄️ AC: Auto",
+            HVACProfile::Sleep => "Heating preferred, quiet operation\n     18-20°C / 64-68°F heating | 26-28°C / 79-82°F cooling\n     Fan off/low speed\n     Energy saving mode\n     🔥 Heater: ON | ❄️ AC: OFF",
+            HVACProfile::Party => "Cooling with ventilation\n     22°C / 72°F heating | 23-24°C / 73-75°F cooling\n     Medium-high fan speed\n     Comfort prioritized\n     🔥 Heater: OFF | ❄️ AC: ON",
+            HVACProfile::Vacation => "HVAC system off - Extended absence\n     16-18°C / 61-64°F heating | 29-30°C / 84-86°F cooling\n     Fan off\n     Max energy saving\n     🔥 Heater: OFF | ❄️ AC: OFF",
+            HVACProfile::Away => "HVAC off/eco mode - Maintain 25°C / 77°F\n     25°C / 77°F target temperature\n     Fan off\n     Energy saving\n     🔥 Heater: OFF | ❄️ AC: OFF",
         }
     }
     
@@ -91,6 +96,7 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
     let scheduled = current_scheduled_profile();
     let desc = description_opt.as_deref().unwrap_or(profile.description());
+    let temp_f = celsius_to_fahrenheit(temperature);
     
     println!("🌈✨=============================================✨🌈");
     println!("🏡  HVAC Profile Applied");
@@ -101,7 +107,7 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     println!();
     println!("⚙️  Mode: {:?}", mode);
     println!();
-    println!("🎯  Target Temperature: {:.1}°C", temperature);
+    println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", temperature, temp_f);
     println!();
     
     if scheduled == profile {

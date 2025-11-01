@@ -3,6 +3,11 @@ use chrono::Local;
 use crate::logger;
 use crate::senser;
 
+/// Convert Celsius to Fahrenheit
+fn celsius_to_fahrenheit(celsius: f32) -> f32 {
+    (celsius * 9.0 / 5.0) + 32.0
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HVACMode {
     Off,
@@ -120,16 +125,23 @@ impl HVACSystem {
         let now = Local::now();
         let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
 
+        let current_temp_f = celsius_to_fahrenheit(current_temp);
+        let target_temp_f = celsius_to_fahrenheit(self.target_temperature);
+
         println!("🌈✨=============================================✨🌈");
         match self.mode {
             HVACMode::Heating if current_temp < self.target_temperature => {
                 println!("🔥  HVAC Status: HEATING");
                 println!();
-                println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                 println!();
-                println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                 println!();
                 println!("⚙️  Mode: Heating");
+                println!();
+                println!("🔥  Heater: ON");
+                println!();
+                println!("❄️  AC: OFF");
                 println!();
                 println!("📊  Status: Warming up your space!");
                 println!();
@@ -139,11 +151,15 @@ impl HVACSystem {
             HVACMode::Heating => {
                 println!("🔥  HVAC Status: HEATING");
                 println!();
-                println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                 println!();
-                println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                 println!();
                 println!("⚙️  Mode: Heating");
+                println!();
+                println!("🔥  Heater: ON");
+                println!();
+                println!("❄️  AC: OFF");
                 println!();
                 println!("📊  Status: Temperature reached!");
                 println!();
@@ -152,11 +168,15 @@ impl HVACSystem {
             HVACMode::Cooling if current_temp > self.target_temperature => {
                 println!("❄️  HVAC Status: COOLING");
                 println!();
-                println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                 println!();
-                println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                 println!();
                 println!("⚙️  Mode: Cooling");
+                println!();
+                println!("🔥  Heater: OFF");
+                println!();
+                println!("❄️  AC: ON");
                 println!();
                 println!("📊  Status: AC cooling down your space!");
                 println!();
@@ -166,20 +186,24 @@ impl HVACSystem {
             HVACMode::Cooling => {
                 println!("❄️  HVAC Status: COOLING");
                 println!();
-                println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                 println!();
-                println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                 println!();
                 println!("⚙️  Mode: Cooling");
                 println!();
-                println!("📊  Status: Temperature reached!");
+                println!("�  Heater: OFF");
+                println!();
+                println!("❄️  AC: ON");
+                println!();
+                println!("�📊  Status: Temperature reached!");
                 println!();
                 println!("🕒  Time: {}", time_str);
             }
             HVACMode::FanOnly => {
                 println!("💨  HVAC Status: FAN ONLY");
                 println!();
-                println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                 println!();
                 println!("⚙️  Mode: Fan Only");
                 println!();
@@ -198,13 +222,15 @@ impl HVACSystem {
                 if current_temp < self.target_temperature - 0.5 {
                     println!("🤖  HVAC Status: AUTO MODE");
                     println!();
-                    println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                    println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                     println!();
-                    println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                    println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                     println!();
                     println!("⚙️  Mode: Auto");
                     println!();
-                    println!("🔥  Active System: Heater");
+                    println!("🔥  Heater: ON");
+                    println!();
+                    println!("❄️  AC: OFF");
                     println!();
                     println!("📊  Status: Heating to reach target");
                     println!();
@@ -213,13 +239,15 @@ impl HVACSystem {
                 } else if current_temp > self.target_temperature + 0.5 {
                     println!("🤖  HVAC Status: AUTO MODE");
                     println!();
-                    println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                    println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                     println!();
-                    println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                    println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                     println!();
                     println!("⚙️  Mode: Auto");
                     println!();
-                    println!("❄️  Active System: AC");
+                    println!("🔥  Heater: OFF");
+                    println!();
+                    println!("❄️  AC: ON");
                     println!();
                     println!("📊  Status: Cooling to reach target");
                     println!();
@@ -228,15 +256,17 @@ impl HVACSystem {
                 } else {
                     println!("🤖  HVAC Status: AUTO MODE");
                     println!();
-                    println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                    println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                     println!();
-                    println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+                    println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
                     println!();
                     println!("⚙️  Mode: Auto");
                     println!();
-                    println!("✅  Active System: None (Perfect temp!)");
+                    println!("🔥  Heater: OFF");
                     println!();
-                    println!("📊  Status: Maintaining comfort");
+                    println!("❄️  AC: OFF");
+                    println!();
+                    println!("📊  Status: Maintaining comfort (Perfect temp!)");
                     println!();
                     println!("🕒  Time: {}", time_str);
                 }
@@ -244,7 +274,7 @@ impl HVACSystem {
             HVACMode::Off => {
                 println!("⭕  HVAC Status: OFF");
                 println!();
-                println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+                println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
                 println!();
                 println!("⚙️  Mode: Off");
                 println!();
@@ -269,6 +299,8 @@ impl HVACSystem {
             Err(_) => 22.0,
         };
         
+        let current_temp_f = celsius_to_fahrenheit(current_temp);
+        let target_temp_f = celsius_to_fahrenheit(self.target_temperature);
         let now = Local::now();
         let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
         
@@ -277,13 +309,15 @@ impl HVACSystem {
         println!();
         println!("⚙️  Mode: {:?}", self.mode);
         println!();
-        println!("🎯  Target Temperature: {:.1}°C", self.target_temperature);
+        println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", self.target_temperature, target_temp_f);
         println!();
-        println!("🌡️  Current Temperature: {:.1}°C", current_temp);
+        println!("🌡️  Current Temperature: {:.1}°C / {:.1}°F", current_temp, current_temp_f);
         println!();
         
         let (min_temp, max_temp) = self.mode.temperature_range();
-        println!("📏  Valid Range: {:.0}°C - {:.0}°C", min_temp, max_temp);
+        let min_temp_f = celsius_to_fahrenheit(min_temp);
+        let max_temp_f = celsius_to_fahrenheit(max_temp);
+        println!("📏  Valid Range: {:.0}°C - {:.0}°C / {:.0}°F - {:.0}°F", min_temp, max_temp, min_temp_f, max_temp_f);
         println!();
         println!("🕒  Time: {}", time_str);
         println!("🌈✨=============================================✨🌈");
