@@ -58,6 +58,12 @@ pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()
                     break;
                 }
             }
+            "guest" => {
+                ui::guest_ui();
+                if !guest_menu(conn, username, role)? {
+                    break;
+                }
+            }
             "technician" => {
                 ui::technician_ui();
                 if !technician_menu(conn, username, role)? {
@@ -560,5 +566,6 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
+
 
 
