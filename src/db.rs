@@ -1,60 +1,16 @@
-/******************************************************
-===============         db.rs           ===============
-*******************************************************/
-// This module defines all SQLite database setup and access functions for the smart thermostat system. 
-// This handles user management, session tracking, technician access, and event logging.
-
-// init_system_db: Initializes the system.db database where
-// we apply secure PRAGMA (special type of statement allows for interaction
-// with the internal state and configuration of the db engine) and creating
-// all necessary tables (users, logs, lockouts, technician_jobs, sessions, weather, profiles).
-
-// get_connection: returns a reusuable database connection and initializing db if required.
-
-// user_exists: checks whether a username exists within the db.
-
-// get_user_id_and_role: gets the users ID number and role (admin, tech, homeowner, guest).
-
-// insert_user: used for registration purposes which inserts a new user data, logging the event and 
-// commiting change atomically (either the operation succeeds or nothing changes) using transaction
-
-// show_own_profile: displays the user details such as ID #, role, creation time, last login in EDT
-
-// list_guests_of_homeowner: list the guest accounts under specific homeowner acct.
-
-// view_all_users: List all registered users (with admin access) showing their enable status, creation and login time.
-
-// manage_user_status: allows admin to enable or disable user accounts with logging and re-auth.
-
-// ======== Techinician Related ========
- // grant_technician_access: Homeowner grants technician temporary access to a homeowner's system for a specific
- // period of time (30-120 minutes) with validation of roles, and event logging
-
- //access_job: allow a technician to activate a job if it's still valid, marked as "TECH_ACCESS"
- // or expires if the access expires.
-
- //sweep_expire_grants: expires technician access grants where time has passed, logged in security logs
-
- // tech_has_perm: Determines whether a technician has permission to act on the target homeowner's acct.
-
- // list_active_grants: lists all active technician access grants 
-
-// ======== Session Mgmt ========
- // new_session_token: generates a random 32-byte session token, which returns the hashed form for storing it in DB
-
- // update_session: replace any previous session for the user with a new one, with an expiration date of 10 minutes, and return a new token
- 
- // end_session: deletes the user's active session used in auth::logout_user 
-
 use anyhow::{anyhow, Context, Result};
 use base64::{Engine, engine::general_purpose};
 use blake3;
 use chrono::{DateTime, Utc, NaiveDateTime};
 use chrono_tz::America::New_York;
+use dotenvy::dotenv;
+use hmac::{Hmac, Mac};
 use rusqlite::{params, Connection, OptionalExtension};
 use rpassword::read_password;
-use rand::{TryRngCore, rngs::OsRng};
-use std::io::{self, Write};
+use rand::rngs::OsRng;
+use rand_core::TryRngCore;
+use sha2::Sha256;
+use std::{env, io::{self, Write}};
 use zeroize::Zeroizing;
 
 use crate::auth;
@@ -119,6 +75,7 @@ pub fn init_system_db() -> Result<Connection> {
                 event_type IN (
                     'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
                     'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC'
+                    'ACCESS_GRANTED', 'ACCESS_EXPIRED', 'TECH_ACCESS'
                 )
             ),
             description TEXT,
@@ -812,7 +769,50 @@ pub fn list_active_grants(conn: &Connection, username: &str) -> Result<()> {
 //                          TOKEN
 // ======================================================
 
-fn new_session_token() -> (Zeroizing<String>, String) {
+type HmacSha256 = Hmac<Sha256>;
+
+// Signs a random token using HMAC-SHA256.
+fn sign_token(token: &str, key: &[u8]) -> Result<String> {
+    let mut mac = HmacSha256::new_from_slice(key)?;
+    mac.update(token.as_bytes());
+    let signature = mac.finalize().into_bytes();
+    let sig_b64 = general_purpose::URL_SAFE_NO_PAD.encode(signature);
+    Ok(format!("{token}.{sig_b64}"))
+}
+
+// Verifies HMAC and returns original token if valid.
+fn verify_token(signed: &str, key: &[u8]) -> Result<String> {
+    let (token, sig_b64) = signed
+        .rsplit_once('.')
+        .ok_or_else(|| anyhow!("Invalid token format"))?;
+    let sig_bytes = general_purpose::URL_SAFE_NO_PAD.decode(sig_b64)?;
+    let mut mac = HmacSha256::new_from_slice(key)?;
+    mac.update(token.as_bytes());
+    mac.verify_slice(&sig_bytes)
+        .map_err(|_| anyhow!("Invalid token signature"))?;
+    Ok(token.to_string())
+}
+
+// Loads the HMAC key securely from environment at runtime.
+// Fails if not set. In real deployments, store in env/secret manager.
+fn load_session_hmac_key() -> Result<Zeroizing<Vec<u8>>> {
+    dotenv().ok(); // load .env if present
+    
+    if let Ok(key) = env::var("SESSION_HMAC_KEY") {
+        return Ok(Zeroizing::new(key.into_bytes()));
+    }
+
+    // Generate secure random key
+    let mut key_bytes = [0u8; 32];
+    let mut rng = OsRng;
+    rng.try_fill_bytes(&mut key_bytes).context("OS RNG failed")?;
+    let key_b64 = general_purpose::URL_SAFE_NO_PAD.encode(&key_bytes);
+    key_bytes.fill(0); // wipe buffer
+
+    Ok(Zeroizing::new(key_b64.into_bytes()))
+}
+
+fn new_session_token() -> Result<(Zeroizing<String>, String)> {
     let mut buf = [0u8; 32];
     let mut rng = OsRng;
     TryRngCore::try_fill_bytes(&mut rng, &mut buf).expect("OS RNG failed");
@@ -820,13 +820,16 @@ fn new_session_token() -> (Zeroizing<String>, String) {
 
     // Plain token returned to caller (for headers/cookies/in-memory)
     let token_plain = Zeroizing::new(general_purpose::URL_SAFE_NO_PAD.encode(buf));
+    buf.fill(0); // Wipe the temporary random buffer
+    
+    // Load HMAC key and sign token
+    let key = load_session_hmac_key()?;
+    let signed = sign_token(&token_plain, &key)?;
     
     // Hash stored in DB (hex)
-    let token_hash_hex = blake3::hash(&buf).to_hex().to_string();
-    // Wipe the temporary random buffer
-    buf.fill(0);
-
-    (token_plain, token_hash_hex)
+    let token_hash_hex = blake3::hash(token_plain.as_bytes()).to_hex().to_string();
+    
+     Ok((Zeroizing::new(signed), token_hash_hex))
 }
 
 /*Creates or updates a user session in the `session_state` table.
@@ -840,23 +843,18 @@ pub fn update_session(conn: &Connection, username: Option<&str>) -> Result<Strin
         "username IS NULL"
     };
 
-    // Delete only expired sessions
+    // Delete expired sessions
     if let Some(u) = username {
     conn.execute(
         &format!(
             "DELETE FROM session_state WHERE {} AND session_expires <= datetime('now')",
-            where_clause
-        ),
-    params![u],
-    )?;
+            where_clause), params![u])?;
     } else {
     conn.execute(
         &format!(
             "DELETE FROM session_state WHERE {} AND session_expires <= datetime('now')",
-            where_clause
-        ),
-        [], // no parameters
-    )?;
+            where_clause),
+        [])?;
     }
 
     // Check if an active session already exists
@@ -864,21 +862,25 @@ pub fn update_session(conn: &Connection, username: Option<&str>) -> Result<Strin
         conn.query_row(
             &format!(
                 "SELECT 1 FROM session_state WHERE {} AND session_expires > datetime('now') LIMIT 1",
-                where_clause
-            ),
-            rusqlite::params![u],
-            |r| r.get(0),
-        ).optional()?
+                where_clause), params![u], |r| r.get(0)).optional()?
     } else {
         conn.query_row(
             &format!(
                 "SELECT 1 FROM session_state WHERE {} AND session_expires > datetime('now') LIMIT 1",
-                where_clause
-            ),
-            [],
-            |r| r.get(0),
-        ).optional()?
+                where_clause), [], |r| r.get(0)).optional()?
     };
+
+    // Verify hmac integrity
+    let key = load_session_hmac_key()?;
+    
+    let mut check_buf = [0u8; 16];
+    let mut rng = OsRng;
+    rng.try_fill_bytes(&mut check_buf).context("OS RNG failed")?;
+    let random_check = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&check_buf);
+    check_buf.fill(0); //wipe
+
+    let signed_check = sign_token(&random_check, &key)?; // loaded HMAC key and algorith are valid
+    verify_token(&signed_check, &key)?; //fail if key is wrong/corrupt
 
     //Refresh expiry if session already exists
     if has_live_session.is_some() {
@@ -886,24 +888,18 @@ pub fn update_session(conn: &Connection, username: Option<&str>) -> Result<Strin
             conn.execute(
                 &format!(
                     "UPDATE session_state SET session_expires = datetime('now', '+10 minutes') WHERE {}",
-                    where_clause
-                ),
-                rusqlite::params![u],
-            )?;
+                    where_clause), params![u])?;
         } else {
             conn.execute(
                 &format!(
                     "UPDATE session_state SET session_expires = datetime('now', '+10 minutes') WHERE {}",
-                    where_clause
-                ),
-                [],
-            )?;
+                    where_clause), [])?;
         }
         return Ok("<existing-session>".to_string());
     }
 
     // Generate a new token
-    let (token_plain, token_hash_hex) = new_session_token();
+    let (token_plain, token_hash_hex) = new_session_token()?;
 
     let expires = Utc::now() + chrono::Duration::minutes(10);
     let expires_str = expires.format("%Y-%m-%d %H:%M:%S").to_string();
@@ -1396,5 +1392,6 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
