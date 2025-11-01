@@ -18,7 +18,8 @@ use crate::logger;
 
 /* Register a new account with role-based access control.
   Admins can create any user type.
-  Technicians and Homeowners can create *only Guests*.
+  Homeowners can create *only Guests*.
+  Technicians can only manage existing guests.
   Guests cannot register anyone. */
 pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -> Result<()> {
     // Identify acting user and role
@@ -97,7 +98,7 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
                 }
             }
         }
-        "technician" | "homeowner" => {
+        "homeowner" => {
             println!("{acting_role}s may only create guest accounts.");
             "guest".to_string()
         }
@@ -254,7 +255,7 @@ pub fn username_is_valid(username: &str) -> bool {
 }
 
 // Validates password strength (upper, lower, digit, special)
-pub fn password_is_strong(password: &str, username: &str) -> bool {
+fn password_is_strong(password: &str, username: &str) -> bool {
     if password.to_lowercase().contains(&username.to_lowercase()) {
         eprintln!("Password should not contain the username.");
         return false;
@@ -348,6 +349,13 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         }
     }
 
+    db::update_session(conn, None)?;
+
+    if logger::session_lockout_check(conn, None)? {
+        println!("Session temporarily locked due to repeated failed attempts.");
+        return Ok(None);
+    }
+
     // Prompt username
     print!("Username: ");
     io::stdout().flush().ok();
@@ -359,13 +367,18 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         return Ok(None);
     }
 
-    // 3) Check lockout (generic handling inside)
+    // Check lockout
     if logger::check_lockout(conn, &username)? {
         return Ok(None);
     }
 
+    if logger::session_lockout_check(conn, Some(&username))? {
+        println!("Session temporarily locked due to repeated failed attempts.");
+        return Ok(None);
+    }
 
-    // Prompt password (hidden) — strip only trailing CR/LF
+
+    // Prompt password (hidden input)
     print!("Password: ");
     io::stdout().flush().ok();
     let pw_in = Zeroizing::new(read_password()?);
@@ -390,6 +403,8 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
     if row.is_none() {
         let _ = verify_password(password, fake_hash);
         logger::fake_verification_delay();
+        logger::increment_session_fail(conn, None)?;
+        logger::session_lockout_check(conn, None)?;
         logger::record_login_attempt(conn, &username, false)?;
         println!("Invalid username or password.");
         return Ok(None);
@@ -401,6 +416,8 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
     // Verify password FIRST (avoid status-based enumeration)
     if !verify_password(password, &stored_hash)? {
         logger::fake_verification_delay();
+        logger::increment_session_fail(conn, Some(&username))?;
+        logger::session_lockout_check(conn, Some(&username))?;
         logger::record_login_attempt(conn, &username, false)?;
         println!("Invalid username or password.");
         return Ok(None);
@@ -418,6 +435,14 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         );
         return Ok(None);
     }
+
+    // On success: reset anonymous lockout counters
+    conn.execute(
+        "UPDATE session_state
+         SET failed_attempts = 0, is_locked = 0, locked_until = NULL
+         WHERE username IS NULL",
+        [],
+    )?;
 
         // cleanup of expired sessions
     let _ = conn.execute(
@@ -450,9 +475,10 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
     }
 
     // Success: record, create new session (stores only hash; returns plaintext token)
+    db::end_session(conn, "")?;
     logger::record_login_attempt(conn, &username, true)?;
-    let _session_token_plain = db::update_session(conn, &username)?; // do NOT persist
-
+    let _session_token_plain = db::update_session(conn, Some(&username))?;
+    
     // reflect session in this process (CLI)
     let mut active = ACTIVE_SESSION
     .lock()
