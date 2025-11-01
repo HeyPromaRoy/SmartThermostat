@@ -2,7 +2,9 @@ use rusqlite::Connection;
 use anyhow::Result;
 use std::io::{self, Write};
 
-use crate::{ui, auth, logger, db, guest, senser, hvac, technician, weather};
+
+use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather};
+use crate::energy;
 use crate::function::{prompt_input, wait_for_enter};
 
 use crate::profile::{HVACProfile, apply_profile};
@@ -133,15 +135,31 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
             "9" => {
                 manage_profiles_menu(conn, username, role)?;
             },
+
             "A" => {
+                if let Err(e) = energy::view_energy_usage(conn, username) {
+                        println!("Error generating energy report: {}", e);
+                    }
+                    wait_for_enter();
+            }
+
+            "C" => {
                 technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
             }
-            "B" => {
+
+            "D" => {
                 println!("Your active technician access grants:");
                 db::list_active_grants(conn, username)?;
                 wait_for_enter();
             }
+            "B" => {
+
+                if let Err(e) = energy::compare_energy_usage(conn, username) {
+                        println!("Error comparing energy usage: {}", e);
+                        wait_for_enter(); }
+            }
+
             "0" => {
                 println!("Logging out...");
                 auth::logout_user(conn)?;
