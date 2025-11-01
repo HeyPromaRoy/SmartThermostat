@@ -95,11 +95,12 @@ pub fn homeowner_ui() {
     println!("{}{}{}", spacing1, menu_spc, "USER MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] View profile      |  [6] HVAC Control".color(Color::White));
-    println!("{}{}", spacing2, "[2] Register a guest  |  [7] Outdoor Weather".color(Color::White));
-    println!("{}{}", spacing2, "[3] View guest(s)     |  [8] System Status".color(Color::White));
-    println!("{}{}", spacing2, "[4] Manage Guests     |  [9] Profile settings".color(Color::White));
-    println!("{}{}", spacing2, "[5] Indoor Sensing    |".color(Color::White));
+    println!("{}{}", spacing2, "[1] View profile              |  [6] HVAC Control".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a guest          |  [7] Outdoor Weather".color(Color::White));
+    println!("{}{}", spacing2, "[3] View guest(s)             |  [8] System Status".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Guests             |  [9] Profile settings".color(Color::White));
+    println!("{}{}", spacing2, "[5] Indoor Sensing            |".color(Color::White));
+    println!("{}{}", spacing2, "[A] Request a Technician      |  [B] View Active Grants".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
 
@@ -118,11 +119,11 @@ let bar_color = Color::Red;
     println!("{}{}{}", spacing1, menu_spc, "ADMIN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] Show my profile   |  [6] Clear user lockouts".color(Color::White));
-    println!("{}{}", spacing2, "[2] Register a user   |  [7] Indoor sensing".color(Color::White));
-    println!("{}{}", spacing2, "[3] View user(s)      |  [8] Outdoor weather".color(Color::White));
-    println!("{}{}", spacing2, "[4] Manage Users      |  [9] Choose Profile".color(Color::White));
-    println!("{}{}", spacing2, "[5] View security logs|".color(Color::White));
+    println!("{}{}", spacing2, "[1] Show my profile           |  [6] Clear user lockouts".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a user           |  [7] Indoor sensing".color(Color::White));
+    println!("{}{}", spacing2, "[3] View user(s)              |  [8] Outdoor weather".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Users              |  [9] Choose Profile".color(Color::White));
+    println!("{}{}", spacing2, "[5] View security logs        |".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
 
     println!(); // add an extra blank line for readability
@@ -141,8 +142,8 @@ pub fn technician_ui(){
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
     println!("{}{}", spacing2, "[1] Show my profile   |  [6] View system events".color(Color::White));
-    println!("{}{}", spacing2, "[2] Register a guest  |  [7] Indoor sensing".color(Color::White));
-    println!("{}{}", spacing2, "[3] View guest(s)     |  [8] Outdoor weather".color(Color::White));
+    println!("{}{}", spacing2, "[2] View all jobs     |  [7] Indoor sensing".color(Color::White));
+    println!("{}{}", spacing2, "[3] Access job        |  [8] Outdoor weather".color(Color::White));
     println!("{}{}", spacing2, "[4] Manage guest(s)   |  [9] Profile settings".color(Color::White));
     println!("{}{}", spacing2, "[5] Run diagnostics   |".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
@@ -172,6 +173,34 @@ pub fn guest_ui() {
     println!(); // add an extra blank line for readability
     print!("{}", "Select an option [0-5]: ".bold().color(Color::Cyan));
     
+}
+
+pub fn manage_guest_menu() {
+    
+    use std::io::Write;
+    
+    let bar_color = Color::Magenta;
+    let title_color = Color::BrightYellow;
+    let text_color = Color::White;
+
+    let menu_bar = "=".repeat(46);
+    let menu_spc = " ".repeat(14);
+    let spacing1 = " ".repeat(7);
+    let spacing2 = " ".repeat(8);
+
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    println!("{}{}{}", spacing1,  menu_spc, "GUEST MANAGEMENT MENU".bold().color(title_color));
+    println!("{}{}", spacing1, menu_bar.color(bar_color));
+    
+    println!("{}{}", spacing2, "[1] Reset Guest Pin".color(text_color));
+    println!("{}{}", spacing2, "[2] Enable/Disable Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[3] Delete Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
+
+    println!();
+    print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
+    std::io::stdout().flush().expect("Failed to flush stdout");
+
 }
 
 pub fn about_ui() {
@@ -252,31 +281,6 @@ pub fn hvac_status_ui(temp: f32, target: f32, mode: &str, status: &str) {
     println!("{}{}", spacing2, "Press Enter to continue...".color(Color::Cyan));
 }
 
-pub fn manage_guest_menu() {
-
-    let bar_color = Color::Magenta;
-    let title_color = Color::BrightYellow;
-    let text_color = Color::White;
-
-    let menu_bar = "=".repeat(46);
-    let menu_spc = " ".repeat(14);
-    let spacing1 = " ".repeat(7);
-    let spacing2 = " ".repeat(8);
-
-    println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}{}", spacing1,  menu_spc, "GUEST MANAGEMENT MENU".bold().color(title_color));
-    println!("{}{}", spacing1, menu_bar.color(bar_color));
-    
-    println!("{}{}", spacing2, "[1] Reset Guest Pin".color(text_color));
-    println!("{}{}", spacing2, "[2] Enable/Disable Guest Account".color(text_color));
-    println!("{}{}", spacing2, "[3] Delete Guest Account".color(text_color));
-    println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
-
-    println!();
-    print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
-
-}
-
 pub fn profile_selection_ui() {
     let bar_color = Color::BrightCyan;
     let title_color = Color::BrightYellow;
@@ -302,3 +306,4 @@ pub fn profile_selection_ui() {
     println!();
     print!("{}","Select a profile [0-6]: ".bold().color(Color::Cyan));
 }
+
