@@ -2,14 +2,7 @@ use rusqlite::Connection;
 use anyhow::Result;
 use std::io::{self, Write};
 
-use crate::ui;
-use crate::auth;
-use crate::logger;
-use crate::db;
-use crate::guest;
-use crate::senser;
-use crate::hvac;
-use crate::weather;
+use crate::{ui, auth, logger, db, guest, senser, hvac, technician, weather};
 use crate::function::{prompt_input, wait_for_enter};
 
 use crate::profile::{HVACProfile, apply_profile};
@@ -68,12 +61,6 @@ pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()
             "technician" => {
                 ui::technician_ui();
                 if !technician_menu(conn, username, role)? {
-                    break;
-                }
-            }
-            "guest" => {
-                ui::guest_ui();
-                if !guest_menu(conn, username, role)? {
                     break;
                 }
             }
@@ -140,7 +127,15 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
             "9" => {
                 manage_profiles_menu(conn, username, role)?;
             },
-
+            "A" => {
+                technician::homeowner_request_tech(conn)?;
+                wait_for_enter();
+            }
+            "B" => {
+                println!("Your active technician access grants:");
+                db::list_active_grants(conn, username)?;
+                wait_for_enter();
+            }
             "0" => {
                 println!("Logging out...");
                 auth::logout_user(conn)?;
@@ -245,7 +240,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
 // ===============================================================
 fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
     
-    let technician_id = match db::get_user_id_and_role(conn, username)? {
+    let _technician_id = match db::get_user_id_and_role(conn, username)? {
         Some((id, role)) if role == "technician" => id,
         _ => {
             println!("Access denied: invalid technician account.");
@@ -261,12 +256,37 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
                 wait_for_enter();
             },
             "2" => {
-                println!("Registering a guest account...");
-                // Technicians can only create guests (enforced in auth.rs)
-                auth::register_user(conn, Some((username, role)))?;
+                if let Err(e) = technician::tech_list_my_jobs(conn) {
+                eprintln!("Error: {e}");
             }
-            "3" => println!("View guest(s) (coming soon)..."),
-            "4" => {guest::manage_guests_menu(conn, technician_id, username)?;},
+            wait_for_enter();}
+
+            "3" => {    
+            println!("Use a homeowner access grant…");
+            if let Err(e) = technician::tech_access_job(conn) {
+            eprintln!("Error: {e}");}
+            },
+            "4" => {    
+                println!("Enter homeowner username to manage their guests:");
+            if let Some(h_in) = prompt_input() {
+            let homeowner_username = h_in.trim();
+            if homeowner_username.is_empty() {
+            println!("No homeowner entered.");
+            } else {
+            match db::get_user_id_and_role(conn, homeowner_username)? {
+                Some((homeowner_id, h_role)) if h_role == "homeowner" => {
+                    // Pass homeowner_id (not technician_id) and the homeowner's username
+                    guest::manage_guests_menu(conn, homeowner_id,
+                        username,            // acting technician username
+                        role,                // "technician"
+                        homeowner_username,  // target homeowner
+                    )?;
+                }
+                _ => { println!("'{}' is not a valid homeowner.", homeowner_username);}
+                }
+            }
+            } else { println!("Cancelled."); }
+        }
             "5" => println!("Running diagnostics (coming soon)..."),
             "6" => println!("Viewing system events (coming soon)..."),
             "7"  => {
@@ -278,16 +298,55 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             },
             "8" => {
                 println!("Outdoor weather data...");
+                if let Err(e) = weather::get_current_weather() {
+                    eprintln!("❌ Error: {:?}", e);
+                }
+                wait_for_enter();
+            },
+            "0" => {
+                println!("Logging out...");
+                auth::logout_user(conn)?;
+                ui::front_page_ui();
+                return Ok(false);
+            }
+            _ => println!("Invalid choice, please try again.\n"),
+        },
+        None => {
+            println!("End of input detected. Exiting...");
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+// ===============================================================
+//                         GUEST MENU
+// ===============================================================
+fn guest_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
+    match prompt_input() {
+        Some(choice) => match choice.trim() {
+            "1" => { 
+                db::show_own_profile(conn, username)?;
+                wait_for_enter();},
+            "2" => {
+                println!("🌡 Checking indoor temperature...");
+                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
+                    eprintln!("dashboard error: {e}");
+                }
+                wait_for_enter();
+            },
+            "3" => {
+            println!("Retrieving outdoor weather statu...");
                 if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
             },
-            "9" => {
+            "4" => hvac_control_menu(conn, username, role)?,
+            "5" => {
                 profile_selection_menu(conn, username, role)?;
             },
             "0" => {
-                println!("Logging out...");
+                println!("🔒 Logging out...");
                 auth::logout_user(conn)?;
                 ui::front_page_ui();
                 return Ok(false);
@@ -500,47 +559,4 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
     }
 
     Ok(())
-}
-
-// ===============================================================
-//                         GUEST MENU
-// ===============================================================
-fn guest_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
-    match prompt_input() {
-        Some(choice) => match choice.trim() {
-            "1" => { 
-                db::show_own_profile(conn, username)?;
-                wait_for_enter();},
-            "2" => {
-                println!("🌡 Checking indoor temperature...");
-                if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
-                    eprintln!("dashboard error: {e}");
-                }
-                wait_for_enter();
-            },
-            "3" => {
-            println!("Retrieving outdoor weather statu...");
-                if let Err(e) = weather::get_current_weather(conn) {
-                    eprintln!("❌ Error: {:?}", e);
-                }
-                wait_for_enter();
-            },
-            "4" => hvac_control_menu(conn, username, role)?,
-            "5" => {
-                profile_selection_menu(conn, username, role)?;
-            },
-            "0" => {
-                println!("🔒 Logging out...");
-                auth::logout_user(conn)?;
-                ui::front_page_ui();
-                return Ok(false);
-            }
-            _ => println!("Invalid choice, please try again.\n"),
-        },
-        None => {
-            println!("End of input detected. Exiting...");
-            return Ok(false);
-        }
-    }
-    Ok(true)
 }
