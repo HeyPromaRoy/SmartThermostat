@@ -150,6 +150,97 @@ pub fn record_login_attempt(conn: &Connection, actor_username: &str, success: bo
     Ok(())
 }
 
+
+// ======================= SESSION LOCKOUT ====================
+
+pub fn increment_session_fail(conn: &Connection, username: Option<&str>) -> Result<()> {
+    if let Some(u) = username {
+        // Logged-in or specific user
+        conn.execute(
+            "UPDATE session_state
+             SET failed_attempts = failed_attempts + 1
+             WHERE username = ?1 COLLATE NOCASE",
+            params![u],
+        )?;
+    } else {
+        // Anonymous / pre-login session
+        conn.execute(
+            "UPDATE session_state
+             SET failed_attempts = failed_attempts + 1
+             WHERE username IS NULL",
+            [],
+        )?;
+    }
+
+    Ok(())
+}
+
+
+pub fn session_lockout_check(conn: &Connection, username: Option<&str>) -> Result<bool> {
+
+    let (where_clause, owned_params): (&str, Vec<Box<dyn ToSql>>) = match username {
+        Some(u) => (
+            "username = ?1 COLLATE NOCASE",
+            vec![Box::new(u.to_string()) as Box<dyn ToSql>],
+        ),
+        None => ("username IS NULL", Vec::new()),
+    };
+
+    // Borrow them as &dyn ToSql
+    let _param_refs: Vec<&dyn ToSql> = owned_params.iter().map(|b| b.as_ref()).collect();
+
+
+
+    let query = format!(
+        "SELECT failed_attempts, is_locked, locked_until FROM session_state WHERE {where_clause}"
+    );
+
+    let row: Option<(i64, i64, Option<String>)> =
+        conn.query_row(&query, params_from_iter(owned_params), |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .optional()?;
+
+    if let Some((fails, locked, until)) = row {
+        let now = chrono::Utc::now();
+
+        //Currently locked
+        if locked == 1 {
+            if let Some(u) = until {
+                let until_time = chrono::DateTime::parse_from_rfc3339(&u)?.with_timezone(&chrono::Utc);
+                if now < until_time {
+                    let remaining = (until_time - now).num_seconds();
+                    println!("Session temporarily locked. Try again in {remaining}s.");
+
+                    log_event(conn, username.unwrap_or("<anonymous>"), username, "SESSION_LOCKOUT", Some(&format!("Session still locked.")))?;
+                    return Ok(true);
+                }
+            }
+
+            // Expired lock → clear
+            conn.execute(
+                "UPDATE session_state SET is_locked = 0, failed_attempts = 0, locked_until = NULL WHERE username IS NULL",
+                [],
+            )?;
+            return Ok(false);
+        }
+
+        // Too many failed attempts
+        if fails >= MAX_ATTEMPTS {
+            let until = (now + chrono::Duration::seconds(SESSION_LOCK_SECONDS)).to_rfc3339();
+            conn.execute(
+                "UPDATE session_state SET is_locked = 1, locked_until = ?1 WHERE username IS NULL",
+                params![until],
+            )?;
+            println!(
+                "Too many failed attempts. Session locked for {} seconds.",
+                SESSION_LOCK_SECONDS
+            );
+            log_event(conn, username.unwrap_or("<anonymous>"), username, "SESSION_LOCKOUT", Some(&format!("Session locked due to multiple fail attempts.")))?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+
 pub fn clear_lockout(conn: &Connection, current_admin: &str, username: Option<&str>) -> Result<()> {
     // Restrict access — only admins can clear or view lockouts
     if current_admin != "admin" {
@@ -383,3 +474,4 @@ pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role:
     println!("{}", "-".repeat(130));
     Ok(())
 }
+
