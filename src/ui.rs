@@ -120,15 +120,14 @@ let bar_color = Color::Red;
     println!("{}{}{}", spacing1, menu_spc, "ADMIN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] Show my profile           |  [6] Clear user lockouts".color(Color::White));
-    println!("{}{}", spacing2, "[2] Register a user           |  [7] Indoor sensing".color(Color::White));
-    println!("{}{}", spacing2, "[3] View user(s)              |  [8] Outdoor weather".color(Color::White));
-    println!("{}{}", spacing2, "[4] Manage Users              |  [9] Choose Profile".color(Color::White));
-    println!("{}{}", spacing2, "[5] View security logs        |".color(Color::White));
+    println!("{}{}", spacing2, "[1] Show my profile           |  [5] View security logs".color(Color::White));
+    println!("{}{}", spacing2, "[2] Register a user           |  [6] Clear user lockouts".color(Color::White));
+    println!("{}{}", spacing2, "[3] View user(s)              |".color(Color::White));
+    println!("{}{}", spacing2, "[4] Manage Users              |".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
 
     println!(); // add an extra blank line for readability
-    print!("{}", "Select an option [0-9]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [0-6]: ".bold().color(Color::Cyan));
 }
 
 pub fn technician_ui(){
@@ -296,12 +295,12 @@ pub fn profile_selection_ui() {
     println!("{}{}{}", spacing1, menu_spc, "CHOOSE HVAC PROFILE".bold().color(title_color));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
     
-    println!("{}{}", spacing2, "[1] Day    - Comfort mode (22°C, Auto)".color(text_color));
-    println!("{}{}", spacing2, "[2] Night  - Moderate comfort (20°C, Auto)".color(text_color));
-    println!("{}{}", spacing2, "[3] Sleep  - Energy saving (18°C, Heating)".color(text_color));
-    println!("{}{}", spacing2, "[4] Party  - Cool & ventilated (23°C, Cooling)".color(text_color));
-    println!("{}{}", spacing2, "[5] Vacation - Minimal usage (16°C, Off)".color(text_color));
-    println!("{}{}", spacing2, "[6] Away   - Eco mode (17°C, Off)".color(text_color));
+    println!("{}{}", spacing2, "[1] Day    - Comfort mode".color(text_color));
+    println!("{}{}", spacing2, "[2] Night  - Moderate comfort".color(text_color));
+    println!("{}{}", spacing2, "[3] Sleep  - Energy saving".color(text_color));
+    println!("{}{}", spacing2, "[4] Party  - Cool & ventilated".color(text_color));
+    println!("{}{}", spacing2, "[5] Vacation - Minimal usage".color(text_color));
+    println!("{}{}", spacing2, "[6] Away   - Eco mode".color(text_color));
     println!("{}{}", spacing2, "[0] Cancel".color(Color::Red));
 
     println!();

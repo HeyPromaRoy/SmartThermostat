@@ -31,6 +31,7 @@ impl HVACProfile {
         }
     }
 
+    #[allow(dead_code)]
     pub fn description(self) -> &'static str {
         match self {
             HVACProfile::Day => "Auto mode, comfort-oriented\n     21-23°C / 70-73°F heating | 24-26°C / 75-79°F cooling\n     Auto fan speed\n     Comfort prioritized\n     🔥 Heater: Auto | ❄️ AC: Auto",
@@ -60,7 +61,6 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
 
     let name = format!("{:?}", profile);
     let mut greeting_opt: Option<String> = None;
-    let mut description_opt: Option<String> = None;
     if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
         // Map mode string -> HVACMode
         mode = match row.mode.as_str() {
@@ -73,7 +73,6 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
         };
         temperature = row.target_temp;
         greeting_opt = row.greeting;
-        description_opt = row.description;
     }
     
     // Enforce mode-specific temperature ranges (e.g., Heating 25–32, Cooling 16–22)
@@ -97,20 +96,38 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     let scheduled = current_scheduled_profile();
     let temp_f = celsius_to_fahrenheit(temperature);
     
-    // Build description with actual heater/AC status from database
-    let desc = if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
-        // Use database values for heater and AC status
-        let heater_display = if row.heater_status == "ON" { "ON" } else { "OFF" };
-        let ac_display = if row.ac_status == "ON" { "ON" } else { "OFF" };
+    // Determine actual heater/AC status based on CURRENT mode and profile settings
+    let (heater_display, ac_display, light_display) = if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
+        // Check the profile's heater/AC settings from database
+        let profile_heater = &row.heater_status;
+        let profile_ac = &row.ac_status;
+        let profile_light = row.light_status.clone();
         
-        format!(
-            "Temperature: {:.1}°C / {:.1}°F\n🔥 Heater: {} | ❄️ AC: {}",
-            temperature, temp_f, heater_display, ac_display
-        )
+        // Determine actual status based on mode and profile settings
+        let heater_on = match mode {
+            HVACMode::Heating => true,  // Heating mode always has heater on
+            HVACMode::Auto => profile_heater == "ON" || profile_heater == "Auto",  // Auto mode uses profile setting
+            _ => false,  // Other modes have heater off
+        };
+        
+        let ac_on = match mode {
+            HVACMode::Cooling => true,  // Cooling mode always has AC on
+            HVACMode::Auto => profile_ac == "ON" || profile_ac == "Auto",  // Auto mode uses profile setting
+            _ => false,  // Other modes have AC off
+        };
+        
+        (if heater_on { "ON" } else { "OFF" }, if ac_on { "ON" } else { "OFF" }, profile_light)
     } else {
-        // Fallback to default description if database read fails
-        description_opt.as_deref().unwrap_or(profile.description()).to_string()
+        // Fallback based on mode only
+        let heater_on = mode == HVACMode::Heating;
+        let ac_on = mode == HVACMode::Cooling;
+        (if heater_on { "ON" } else { "OFF" }, if ac_on { "ON" } else { "OFF" }, "OFF".to_string())
     };
+    
+    let desc = format!(
+        "Temperature: {:.1}°C / {:.1}°F\n🔥 Heater: {} | ❄️ AC: {} | 💡 Light: {}",
+        temperature, temp_f, heater_display, ac_display, light_display
+    );
     
     println!("🌈✨=============================================✨🌈");
     println!("🏡  HVAC Profile Applied");

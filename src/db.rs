@@ -261,6 +261,9 @@ pub fn init_system_db() -> Result<Connection> {
 
     // Migrate existing profiles table to add new columns if they don't exist
     migrate_profiles_table(&conn)?;
+    
+    // Migrate existing hvac_state table to add light_status if it doesn't exist
+    migrate_hvac_state_table(&conn)?;
 
     // Seed default profiles if missing
     seed_default_profiles(&conn)?;
@@ -935,6 +938,7 @@ pub struct ProfileRow {
     pub description: Option<String>,
     pub heater_status: String,
     pub ac_status: String,
+    pub light_status: String,
     #[allow(dead_code)]
     pub vacation_start_date: Option<String>,
     #[allow(dead_code)]
@@ -951,6 +955,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             description: Some("Auto mode, comfort-oriented, 21-23°C / 24-26°C, Auto fan, Comfort".to_string()),
             heater_status: "Auto".to_string(),
             ac_status: "Auto".to_string(),
+            light_status: "OFF".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -962,6 +967,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             description: Some("Auto or steady heating/cooling, 20°C heating / 25°C cooling, Low fan speed, Moderate".to_string()),
             heater_status: "Auto".to_string(),
             ac_status: "Auto".to_string(),
+            light_status: "ON".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -973,6 +979,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             description: Some("Heating preferred, quiet fan, 18-20°C heating / 26-28°C cooling, Fan off/low, Energy saving".to_string()),
             heater_status: "On".to_string(),
             ac_status: "Off".to_string(),
+            light_status: "OFF".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -984,6 +991,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             description: Some("Cooling with ventilation, 22°C heating / 23-24°C cooling, Medium-high fan, Comfort prioritized".to_string()),
             heater_status: "Off".to_string(),
             ac_status: "On".to_string(),
+            light_status: "ON".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -995,6 +1003,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             description: Some("HVAC mostly off, 16-18°C heating / 29-30°C cooling, Fan off, Max energy saving".to_string()),
             heater_status: "Off".to_string(),
             ac_status: "Off".to_string(),
+            light_status: "OFF".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -1006,6 +1015,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             description: Some("HVAC off/eco mode, 25°C / 77°F, Fan off, Energy saving".to_string()),
             heater_status: "Off".to_string(),
             ac_status: "Off".to_string(),
+            light_status: "OFF".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -1033,6 +1043,44 @@ fn migrate_profiles_table(conn: &Connection) -> Result<()> {
         }
     }
     
+    // Check if light_status column exists
+    let light_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name='light_status'",
+        [],
+        |r| r.get(0),
+    );
+    
+    if let Ok(count) = light_column_check {
+        if count == 0 {
+            // Add light_status column
+            conn.execute(
+                "ALTER TABLE profiles ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
+                [],
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
+    // Check if light_status column exists in hvac_state table
+    let light_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('hvac_state') WHERE name='light_status'",
+        [],
+        |r| r.get(0),
+    );
+    
+    if let Ok(count) = light_column_check {
+        if count == 0 {
+            // Add light_status column
+            conn.execute(
+                "ALTER TABLE hvac_state ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
+                [],
+            )?;
+        }
+    }
+    
     Ok(())
 }
 
@@ -1042,8 +1090,8 @@ fn seed_default_profiles(conn: &Connection) -> Result<()> {
     for name in defaults.iter() {
         if let Some(def) = default_profile_row(name) {
             conn.execute(
-                "INSERT OR IGNORE INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status],
+                "INSERT OR IGNORE INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status],
             )?;
         }
     }
@@ -1052,7 +1100,7 @@ fn seed_default_profiles(conn: &Connection) -> Result<()> {
 
 pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRow>> {
     let mut stmt = conn.prepare(
-        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, vacation_start_date, vacation_end_date FROM profiles WHERE name = ?1",
+        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date FROM profiles WHERE name = ?1",
     )?;
     let row = stmt
         .query_row(params![name], |r| {
@@ -1064,8 +1112,9 @@ pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRo
                 description: r.get::<_, Option<String>>(4)?,
                 heater_status: r.get::<_, Option<String>>(5)?.unwrap_or_else(|| "Auto".to_string()),
                 ac_status: r.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Auto".to_string()),
-                vacation_start_date: r.get::<_, Option<String>>(7)?,
-                vacation_end_date: r.get::<_, Option<String>>(8)?,
+                light_status: r.get::<_, Option<String>>(7)?.unwrap_or_else(|| "OFF".to_string()),
+                vacation_start_date: r.get::<_, Option<String>>(8)?,
+                vacation_end_date: r.get::<_, Option<String>>(9)?,
             })
         })
         .optional()?;
@@ -1074,7 +1123,7 @@ pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRo
 
 pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
     let mut stmt = conn.prepare(
-        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, vacation_start_date, vacation_end_date FROM profiles ORDER BY name",
+        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date FROM profiles ORDER BY name",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -1086,8 +1135,9 @@ pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
                 description: r.get(4)?,
                 heater_status: r.get::<_, Option<String>>(5)?.unwrap_or_else(|| "Auto".to_string()),
                 ac_status: r.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Auto".to_string()),
-                vacation_start_date: r.get(7)?,
-                vacation_end_date: r.get(8)?,
+                light_status: r.get::<_, Option<String>>(7)?.unwrap_or_else(|| "OFF".to_string()),
+                vacation_start_date: r.get(8)?,
+                vacation_end_date: r.get(9)?,
             })
         })?;
     let mut out = Vec::new();
@@ -1325,19 +1375,23 @@ pub fn insert_weather(conn: &mut Connection, data: &WeatherRecord) -> Result<()>
 }
 
 /// Get current HVAC state from database
-pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32)> {
-    let mut stmt = conn.prepare("SELECT mode, target_temperature FROM hvac_state WHERE id = 1")?;
+pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String)> {
+    let mut stmt = conn.prepare("SELECT mode, target_temperature, light_status FROM hvac_state WHERE id = 1")?;
     let result = stmt.query_row([], |row| {
-        Ok((row.get::<_, String>(0)?, row.get::<_, f32>(1)?))
+        Ok((
+            row.get::<_, String>(0)?, 
+            row.get::<_, f32>(1)?,
+            row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "OFF".to_string())
+        ))
     })?;
     Ok(result)
 }
 
 /// Save current HVAC state to database
-pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32) -> Result<()> {
+pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, light_status: &str) -> Result<()> {
     conn.execute(
-        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-        params![mode, target_temperature],
+        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, light_status = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        params![mode, target_temperature, light_status],
     )?;
     Ok(())
 
