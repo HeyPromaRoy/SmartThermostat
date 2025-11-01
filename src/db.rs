@@ -53,7 +53,7 @@ use chrono::{DateTime, Utc, NaiveDateTime};
 use chrono_tz::America::New_York;
 use rusqlite::{params, Connection, OptionalExtension};
 use rpassword::read_password;
-use rand::{RngCore, rngs::OsRng};
+use rand::{TryRngCore, rngs::OsRng};
 use std::io::{self, Write};
 use zeroize::Zeroizing;
 
@@ -1342,4 +1342,5 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32) -
     Ok(())
 
 }
+
 
