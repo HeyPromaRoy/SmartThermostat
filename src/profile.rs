@@ -136,6 +136,17 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     println!();
     println!("{}", greet);
     println!();
+    
+    // Special display for Vacation profile with dates
+    if matches!(profile, HVACProfile::Vacation) {
+        if let Ok(Some(vac_profile)) = db::get_profile_row(conn, "Vacation") {
+            if let (Some(start), Some(end)) = (vac_profile.vacation_start_date, vac_profile.vacation_end_date) {
+                println!("🏖️  Vacation mode ON from {} to {}", start, end);
+                println!();
+            }
+        }
+    }
+    
     println!("⚙️  Mode: {:?}", mode);
     println!();
     println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", temperature, temp_f);

@@ -1,4 +1,4 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, params};
 use anyhow::Result;
 use std::io::{self, Write};
 
@@ -8,6 +8,20 @@ use crate::function::{prompt_input, wait_for_enter};
 use crate::profile::{HVACProfile, apply_profile};
 use crate::hvac::HVACSystem;
 use chrono::Local;
+
+// ===============================================================
+//                    VACATION MODE CHECK
+// ===============================================================
+/// Check if vacation mode is currently active
+fn is_vacation_mode_active(conn: &Connection) -> Result<bool> {
+    if let Ok(Some(vacation_profile)) = db::get_profile_row(conn, "Vacation") {
+        // Vacation mode is active if both start and end dates are set
+        Ok(vacation_profile.vacation_start_date.is_some() && 
+           vacation_profile.vacation_end_date.is_some())
+    } else {
+        Ok(false)
+    }
+}
 
 // ===============================================================
 //                         PROFILE SELECTION MENU
@@ -34,6 +48,107 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                 }
             };
 
+            // Special handling for Vacation profile
+            if matches!(profile, HVACProfile::Vacation) {
+                // Only homeowner can enable vacation mode
+                if user_role != "homeowner" {
+                    println!("❌ Access denied: Only homeowners can enable/disable vacation mode for security reasons.");
+                    wait_for_enter();
+                    return Ok(());
+                }
+                
+                // Check if vacation mode is currently active
+                let current_vacation = db::get_profile_row(conn, "Vacation")?;
+                let is_vacation_active = current_vacation
+                    .as_ref()
+                    .and_then(|p| p.vacation_start_date.as_ref())
+                    .is_some();
+                
+                // Require password verification for enabling/disabling vacation mode
+                println!("\n🔐 Security Check: Please re-enter your password to modify vacation mode");
+                print!("Password: ");
+                io::stdout().flush()?;
+                
+                if let Some(password) = prompt_input() {
+                    // Get stored password hash
+                    let stored_hash: String = conn.query_row(
+                        "SELECT hashed_password FROM users WHERE username = ?1",
+                        params![username],
+                        |row| row.get(0),
+                    )?;
+                    
+                    if !auth::verify_password(&password, &stored_hash)? {
+                        println!("❌ Incorrect password. Vacation mode change cancelled.");
+                        wait_for_enter();
+                        return Ok(());
+                    }
+                } else {
+                    println!("❌ Password required. Vacation mode change cancelled.");
+                    wait_for_enter();
+                    return Ok(());
+                }
+                
+                if is_vacation_active {
+                    // Turning OFF vacation mode
+                    println!("\n🏖️  Vacation mode is currently ACTIVE");
+                    println!("Do you want to turn OFF vacation mode? (y/n): ");
+                    if let Some(confirm) = prompt_input() {
+                        if confirm.trim().eq_ignore_ascii_case("y") {
+                            db::clear_vacation_dates(conn)?;
+                            println!("✓ Vacation mode has been turned OFF.");
+                            wait_for_enter();
+                            return Ok(());
+                        } else {
+                            println!("Vacation mode remains active.");
+                            wait_for_enter();
+                            return Ok(());
+                        }
+                    }
+                } else {
+                    // Turning ON vacation mode - prompt for dates
+                    println!("\n🏖️  Activating Vacation Mode");
+                    println!("Please enter the vacation date range:");
+                    
+                    print!("Start date (mm-dd-yyyy): ");
+                    io::stdout().flush()?;
+                    let start_date = match prompt_input() {
+                        Some(d) => d.trim().to_string(),
+                        None => {
+                            println!("❌ Date required. Vacation mode cancelled.");
+                            wait_for_enter();
+                            return Ok(());
+                        }
+                    };
+                    
+                    print!("End date (mm-dd-yyyy): ");
+                    io::stdout().flush()?;
+                    let end_date = match prompt_input() {
+                        Some(d) => d.trim().to_string(),
+                        None => {
+                            println!("❌ Date required. Vacation mode cancelled.");
+                            wait_for_enter();
+                            return Ok(());
+                        }
+                    };
+                    
+                    // Validate date format (basic check)
+                    if !validate_date_format(&start_date) || !validate_date_format(&end_date) {
+                        println!("❌ Invalid date format. Please use mm-dd-yyyy format.");
+                        wait_for_enter();
+                        return Ok(());
+                    }
+                    
+                    // Save vacation dates
+                    db::set_vacation_dates(conn, &start_date, &end_date)?;
+                    
+                    let mut hvac = HVACSystem::new(conn);
+                    apply_profile(conn, &mut hvac, profile, username, user_role);
+                    println!("\n✓ Vacation mode activated from {} to {}!", start_date, end_date);
+                    wait_for_enter();
+                    return Ok(());
+                }
+            }
+
             let mut hvac = HVACSystem::new(conn);
             apply_profile(conn, &mut hvac, profile, username, user_role);
             println!("\n✓ Profile applied successfully!");
@@ -46,10 +161,57 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
     Ok(())
 }
 
+// Helper function to validate date format mm-dd-yyyy
+fn validate_date_format(date_str: &str) -> bool {
+    let parts: Vec<&str> = date_str.split('-').collect();
+    if parts.len() != 3 {
+        return false;
+    }
+    
+    // Check if parts are numeric and in valid ranges
+    if let (Ok(month), Ok(day), Ok(year)) = (
+        parts[0].parse::<u32>(),
+        parts[1].parse::<u32>(),
+        parts[2].parse::<u32>(),
+    ) {
+        month >= 1 && month <= 12 && day >= 1 && day <= 31 && year >= 2000 && year <= 2100
+    } else {
+        false
+    }
+}
+
 // ===============================================================
 //                         MAIN MENU
 // ===============================================================
 pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()> {
+    // Check if vacation mode is active for guests and technicians
+    if role == "guest" || role == "technician" {
+        if is_vacation_mode_active(conn)? {
+            println!("\n🏖️ ═══════════════════════════════════════════════════════");
+            println!("   VACATION MODE ACTIVE - ACCESS RESTRICTED");
+            println!("   ═══════════════════════════════════════════════════════");
+            println!("\n   The homeowner has enabled vacation mode.");
+            println!("   For security reasons, guest and technician access");
+            println!("   is temporarily disabled while the property is vacant.");
+            println!("\n   Please contact the homeowner for more information.");
+            println!("\n🏖️ ═══════════════════════════════════════════════════════\n");
+            
+            // Log the blocked access attempt
+            let _ = logger::log_event(
+                conn,
+                username,
+                Some(username),
+                "HVAC",
+                Some(&format!("Access denied for {} due to active vacation mode", role)),
+            );
+            
+            wait_for_enter();
+            // Log out the user
+            auth::logout_user(conn)?;
+            return Ok(());
+        }
+    }
+    
     loop {
         match role {
             "homeowner" => {
@@ -292,6 +454,9 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
                 }
                 wait_for_enter();
             },
+            "9" => {
+                manage_profiles_menu(conn, username, role)?;
+            },
             "0" => {
                 println!("Logging out...");
                 auth::logout_user(conn)?;
@@ -357,7 +522,7 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
     let mut hvac = hvac::HVACSystem::new(conn);
     
     loop {
-        ui::hvac_control_ui();
+        ui::hvac_control_ui(user_role);
 
         match prompt_input() {
             Some(choice) => match choice.trim() {
@@ -454,9 +619,23 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
                     wait_for_enter();
                 }
                 "4" => {
-                    profile_selection_menu(conn, username, user_role)?;
+                    // For homeowners: Choose Profile
+                    // For guests/technicians: Return to main menu
+                    if user_role == "homeowner" {
+                        profile_selection_menu(conn, username, user_role)?;
+                    } else {
+                        // Option 4 is "Return to Main Menu" for non-homeowners
+                        break;
+                    }
                 }
-                "5" => break,
+                "5" => {
+                    // Only homeowners see option 5 (Return to Main Menu)
+                    if user_role == "homeowner" {
+                        break;
+                    } else {
+                        println!("Invalid option. Please try again.");
+                    }
+                }
                 _ => println!("Invalid option. Please try again."),
             },
             None => break,
@@ -490,8 +669,8 @@ fn show_system_status(conn: &mut Connection, username: &str, user_role: &str) ->
 //                  ADMIN: MANAGE PROFILE SETTINGS
 // ===============================================================
 fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_role: &str) -> Result<()> {
-    if current_role != "homeowner" && current_role != "admin" { 
-        println!("Access denied: Only homeowners and admins can manage profiles."); 
+    if current_role != "homeowner" && current_role != "admin" && current_role != "technician" { 
+        println!("Access denied: Only homeowners, technicians, and admins can manage profiles."); 
         return Ok(()); 
     }
 
