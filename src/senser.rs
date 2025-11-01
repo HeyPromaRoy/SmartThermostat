@@ -114,7 +114,7 @@ pub fn gen_random_data(
         });
     }
 
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let v: f32 = rng.gen_range(lo..hi);
     Ok(v)
 }
