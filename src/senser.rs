@@ -115,7 +115,7 @@ pub fn gen_random_data(
     }
 
     let mut rng = rand::rng();
-    let v: f32 = rng.gen_range(lo..hi);
+    let v: f32 = rng.random_range(lo..hi);
     Ok(v)
 }
 
