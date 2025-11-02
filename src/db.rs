@@ -56,8 +56,6 @@ use rpassword::read_password;
 use rand::{TryRngCore, rngs::OsRng};
 use std::io::{self, Write};
 use zeroize::Zeroizing;
-use dotenvy::dotenv;
-use std::env;
 
 use crate::auth;
 use crate::logger;
@@ -74,28 +72,18 @@ fn to_eastern_time(utc_str: &str) -> Option<String> {
     }
 }
 
-
-// ================= Use SQLCipher =================
 // Initialize all required database tables and indexes.
 pub fn init_system_db() -> Result<Connection> {
-    dotenv().ok();
-
-    let key = env::var("SQLCIPHER_KEY")
-        .context("SQLCIPHER_KEY not set")?;
-
-    // Open the encrypted database
-    let conn = open_sqlcipher_db("system.enc.db", &key)
-        .context("Failed to open encrypted DB")?;
-
-    //Apply secure PRAGMA settings
-    conn.execute_batch(
+    let conn = Connection::open("system.db").context("Failed to open system.db")?;
+        //Apply secure PRAGMA settings
+        conn.execute_batch(
         r#"
         PRAGMA journal_mode=WAL;
         PRAGMA synchronous=FULL;
         PRAGMA foreign_keys=ON;
         PRAGMA secure_delete=ON;
         PRAGMA temp_store=MEMORY;
-    "#,
+        "#,
     )
     .context("Failed to apply secure PRAGMA settings")?;
 
@@ -231,8 +219,7 @@ pub fn init_system_db() -> Result<Connection> {
             ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
             vacation_start_date TEXT,
             vacation_end_date TEXT,
-            updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
-            light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))
+            updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
         -- ===============================
@@ -270,7 +257,7 @@ pub fn init_system_db() -> Result<Connection> {
         INSERT OR IGNORE INTO hvac_state (id, mode, target_temperature) VALUES (1, 'Off', 22.0);
         "#,
     )
-    .context("Failed to initialize tables in system.enc.db")?;
+    .context("Failed to initialize tables in system.db")?;
 
     // Migrate existing profiles table to add new columns if they don't exist
     migrate_profiles_table(&conn)?;
@@ -286,25 +273,6 @@ pub fn init_system_db() -> Result<Connection> {
         "UPDATE profiles SET light_status = 'ON' WHERE name = 'Party' AND (light_status IS NULL OR light_status = 'OFF')",
         [],
     )?;
-
-    Ok(conn)
-}
-
-// Use SQLCipher parameter to open or create encryped database
-fn open_sqlcipher_db(path: &str, key: &str) -> Result<Connection> {
-    let conn = Connection::open(path)?;
-
-    // ** Order can't change
-    conn.pragma_update(None, "cipher_compatibility", &4)?;
-    conn.pragma_update(None, "key", &key)?;
-
-    conn.pragma_update(None, "kdf_iter", &64000)?;
-    conn.pragma_update(None, "cipher_hmac_algorithm", &"HMAC_SHA512")?;
-    conn.pragma_update(None, "cipher_kdf_algorithm",  &"PBKDF2_HMAC_SHA512")?;
-    conn.pragma_update(None, "cipher_page_size", &4096)?;
-
-    // Read table schema to make sure the password is correct
-    let _: i64 = conn.query_row("SELECT count(*) FROM sqlite_master;", [], |r| r.get(0))?;
 
     Ok(conn)
 }
