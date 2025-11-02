@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use argon2::{
-    password_hash::{rand_core::OsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
-    Argon2,
-}; //Argon2 hashing algorithm for hashing and verification
+    password_hash::{rand_core::OsRng as argonOsRng, PasswordHash, PasswordHasher, PasswordVerifier, SaltString},
+    Argon2}; //Argon2 hashing algorithm for hashing and verification
 use lazy_static::lazy_static;
 use regex::Regex; // validating user inputs like usernames and passwords
 use rpassword::read_password; // hidden password entry for CLI
@@ -98,10 +97,10 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
                 }
             }
         }
-        "homeowner" => {
-            println!("{acting_role}s may only create guest accounts.");
-            "guest".to_string()
-        }
+        "homeowner" | "technician" => {
+        println!("{acting_role}s may only create guest accounts.");
+        "guest".to_string()
+    }
         _ => unreachable!(), // already validated above
     };
 
@@ -186,22 +185,66 @@ pub fn register_user(conn: &mut Connection, acting_user: Option<(&str, &str)>) -
     }
 
     // If a homeowner is creating a guest, link them via homeowner_id 
-    let homeowner_id_opt = if acting_role == "homeowner" && new_role == "guest" {
-        match db::get_user_id_and_role(conn, acting_username)? {
-            Some((id, status)) if status == "homeowner" => Some(id),
-            _ => {
-                println!("Acting user is not a valid homeowner.");
-                return Ok(());
+    let homeowner_id_opt = if new_role == "guest" {
+    match acting_role.as_str() {
+        // homeowners link guests to themselves
+        "homeowner" => {
+            match db::get_user_id_and_role(conn, acting_username)? {
+                Some((id, status)) if status == "homeowner" => Some(id),
+                _ => {
+                    println!("Acting user is not a valid homeowner.");
+                    return Ok(());
+                }
             }
         }
-    } else {
-        None
+        // Technicians can register guests *only if they have permission* under a homeowner
+        "technician" => {
+            // Find which homeowner this technician has permission for
+            let homeowner_username_opt: Option<String> = conn
+                .query_row(
+                    r#"
+                    SELECT homeowner_username FROM technician_jobs
+                     WHERE technician_username = ?1 COLLATE NOCASE AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+                       AND datetime(updated_at, printf('+%d minutes', access_minutes)) > datetime('now')
+                     ORDER BY updated_at DESC
+                     LIMIT 1
+                    "#,
+                    params![acting_username],
+                    |r| r.get(0),
+                )
+                .optional()?;
+
+            let Some(homeowner_username) = homeowner_username_opt else {
+                println!("Technician '{acting_username}' has no active homeowner access grants.");
+                return Ok(());   
+            };
+
+            if !db::tech_has_perm(conn, acting_username, &homeowner_username)? {
+                println!("Technician '{acting_username}' does not currently have permission under homeowner '{homeowner_username}'.");
+                return Ok(());
+            }
+            // Retrieve homeowner ID for linkage
+            match db::get_user_id_and_role(conn, &homeowner_username)? {
+                Some((id, status)) if status == "homeowner" => Some(id),
+                _ => {
+                    println!("Failed to resolve homeowner ID for '{}'.", homeowner_username);
+                    return Ok(());
+                }
+            }
+        }
+
+            _ => None,
+            }
+        } else {
+    None
     };
+    
+
     // Hash and insert
     let hashed = match hash_password(&password) {
         Ok(h) => h,
-        Err(e) => {
-            eprintln!("Failed to hash {credential_label}: {e}");
+        Err(_) => {
+            eprintln!("Failed to hash {credential_label}");
             return Ok(());
         }
     };
@@ -255,7 +298,7 @@ pub fn username_is_valid(username: &str) -> bool {
 }
 
 // Validates password strength (upper, lower, digit, special)
-pub fn password_is_strong(password: &str, username: &str) -> bool {
+fn password_is_strong(password: &str, username: &str) -> bool {
     if password.to_lowercase().contains(&username.to_lowercase()) {
         eprintln!("Password should not contain the username.");
         return false;
@@ -314,7 +357,7 @@ fn argon2_hasher() -> Argon2<'static> {
 // Hash a plaintext password securely using Argon2id securely
 // Returns a Password Hashing Competition) formatted string
 pub fn hash_password(password: &str) -> Result<String> {
-    let salt = SaltString::generate(&mut OsRng); //generate unique random salt
+    let salt = SaltString::generate(&mut argonOsRng); //generate unique random salt
     let hasher = argon2_hasher(); //create argon2id hasher instance
     let phc = hasher
         .hash_password(password.as_bytes(), &salt) // convert pwd to raw bytes and salt adds entropy and uniqueness
@@ -473,6 +516,7 @@ pub fn login_user(conn: &Connection) -> Result<Option<(String, String)>> {
         );
         return Ok(None);
     }
+    
 
     // Success: record, create new session (stores only hash; returns plaintext token)
     db::end_session(conn, "")?;
@@ -511,13 +555,13 @@ pub fn logout_user(conn: &Connection) -> Result<()> {
     };
 
     //End the session in DB
-    if let Err(e) = db::end_session(conn, &username) {
-        eprintln!("Warning: failed to end DB session: {e}");
+    if let Err(_) = db::end_session(conn, &username) {
+        eprintln!("Warning: failed to end DB session.");
     }
 
     // Log the logout event
-    if let Err(e) = logger::log_event(conn, &username, Some(&username), "LOGOUT", Some("User logged out")) {
-        eprintln!("Warning: failed to record logout event: {e}");
+    if let Err(_) = logger::log_event(conn, &username, Some(&username), "LOGOUT", Some("User logged out")) {
+        eprintln!("Warning: failed to record logout event");
     }
 
 
