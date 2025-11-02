@@ -80,7 +80,7 @@ fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
 /// set default boundary for each senser(upper/lower bound)
 fn default_bounds(kind: SensorType) -> (f32, f32) {
     match kind {
-        SensorType::TemperatureC => (-40.0, 85.0),
+        SensorType::TemperatureC => (-15.0, 45.0),
         SensorType::HumidityPct  => (0.0, 100.0),
         SensorType::COPpm        => (0.0, 1000.0),
     }
