@@ -1,5 +1,5 @@
 mod auth; mod db; mod function; mod guest; mod hvac; mod logger;
-mod menu; mod ui;  mod profile; mod senser; mod technician; mod weather; mod energy;
+mod menu; mod ui;  mod profile; mod senser; mod technician; mod weather;
 
 use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};

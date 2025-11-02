@@ -99,14 +99,13 @@ pub fn homeowner_ui() {
     println!("{}{}", spacing2, "[2] Register a guest          |  [7] Outdoor Weather".color(Color::White));
     println!("{}{}", spacing2, "[3] View guest(s)             |  [8] System Status".color(Color::White));
     println!("{}{}", spacing2, "[4] Manage Guests             |  [9] Profile settings".color(Color::White));
-    println!("{}{}", spacing2, "[5] Indoor Sensing            |  [A] Energy Usage".color(Color::White));
-    println!("{}{}", spacing2, "[6] Hvac Control              |  [B]Energy Comparision".color(Color::White));
-    println!("{}{}", spacing2, "[C] Request a Technician      |  [D] View Active Grants".color(Color::White));
+    println!("{}{}", spacing2, "[5] Indoor Sensing            |".color(Color::White));
+    println!("{}{}", spacing2, "[A] Request a Technician      |  [B] View Active Grants".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
-     println!(); 
-    print!("{}", "Select an option [0-9, A-D]: ".bold().color(Color::Cyan));
 
+    println!(); // add an extra blank line for readability
+    print!("{}", "Select an option [0-9]: ".bold().color(Color::Cyan));
 }
 
 pub fn admin_ui() {

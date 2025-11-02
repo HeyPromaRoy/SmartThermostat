@@ -10,4 +10,3 @@ pub mod senser;
 pub mod technician;
 pub mod ui;
 pub mod weather;
-pub mod energy;
