@@ -1320,11 +1320,7 @@ pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &st
         ))
     })?;
 
-    println!("\n╔════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗");
-    println!("║                                          HVAC ACTIVITY LOG (Last 50 Entries)                                       ║");
-    println!("╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣");
-    println!("║ {:<19} │ {:<15} │ {:<11} │ {:<18} │ {:<30} ║", "Timestamp", "Username", "Role", "Action", "Description");
-    println!("╠═════════════════════╪═════════════════╪═════════════╪════════════════════╪════════════════════════════════════╣");
+    println!("\n=== HVAC ACTIVITY LOG (Last 50 Entries) ===\n");
 
     let mut found_any = false;
     for log in logs {
@@ -1336,22 +1332,22 @@ pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &st
         let profile_str = profile.unwrap_or_else(|| "-".to_string());
         let desc_str = desc.unwrap_or_else(|| "".to_string());
         
-        // Truncate long strings to fit table
-        let user_trunc = if user.len() > 15 { format!("{}...", &user[..12]) } else { user };
-        let role_trunc = if role.len() > 11 { format!("{}...", &role[..8]) } else { role };
-        let action_display = format!("{}:{}", action, profile_str);
-        let action_trunc = if action_display.len() > 18 { format!("{}...", &action_display[..15]) } else { action_display };
-        let desc_trunc = if desc_str.len() > 30 { format!("{}...", &desc_str[..27]) } else { desc_str };
-        
-        println!("║ {:<19} │ {:<15} │ {:<11} │ {:<18} │ {:<30} ║", 
-                 ts_display, user_trunc, role_trunc, action_trunc, desc_trunc);
+        println!("─────────────────────────────────────────────────────────────────────");
+        println!("Time: {} | User: {} ({}) | Action: {}", 
+                 ts_display, user, role, action);
+        if !profile_str.is_empty() && profile_str != "-" {
+            println!("Profile: {}", profile_str);
+        }
+        if !desc_str.is_empty() {
+            println!("Details: {}", desc_str);
+        }
     }
 
     if !found_any {
-        println!("║ {:<114} ║", "(No HVAC activity logged yet.)");
+        println!("(No HVAC activity logged yet.)");
     }
 
-    println!("╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝");
+    println!("─────────────────────────────────────────────────────────────────────");
     Ok(())
 }
 
