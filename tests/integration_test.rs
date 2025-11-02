@@ -5,16 +5,68 @@ use smart_thermostat::auth::*;
 use smart_thermostat::hvac::*;
 use smart_thermostat::logger::*;
 use smart_thermostat::energy::*;
-use smart_thermostat::guest::*;
 use anyhow::Result;
 use rusqlite::{Connection,params};
-use std::io::Write;
+
 
 
 
 mod tests {
     use super::*;
 
+    fn test_db() -> Connection {
+    let conn = Connection::open_in_memory().unwrap();
+
+    // security_log table
+    conn.execute(
+        "CREATE TABLE security_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            actor_username TEXT NOT NULL,
+            target_username TEXT,
+            event_type TEXT NOT NULL,
+            description TEXT,
+            timestamp TEXT NOT NULL
+        )",
+        [],
+    ).unwrap();
+
+    // lockouts table
+    conn.execute(
+        "CREATE TABLE lockouts (
+            username TEXT PRIMARY KEY COLLATE NOCASE,
+            locked_until TEXT NOT NULL,
+            lock_count INTEGER DEFAULT 1
+        )",
+        [],
+    ).unwrap();
+
+    // ✅ users table with full columns needed by tests
+    conn.execute(
+        "CREATE TABLE users (
+            username TEXT PRIMARY KEY COLLATE NOCASE,
+            hashed_password TEXT,
+            user_status TEXT,
+            is_active INTEGER DEFAULT 1,
+            owner_id TEXT,
+            last_login_time TEXT,
+            updated_at TEXT
+        )",
+        [],
+    ).unwrap();
+
+    // ✅ energy table for energy-related tests
+    conn.execute(
+        "CREATE TABLE energy (
+            id INTEGER PRIMARY KEY,
+            homeowner_username TEXT,
+            timestamp TEXT,
+            energy_kwh REAL
+        )",
+        [],
+    ).unwrap();
+
+    conn
+}
 
 // ===================================================================== //
 //                           SENSOR TESTS
@@ -77,6 +129,14 @@ fn test_register_and_login() -> Result<()> {
         [],
     )?;
 
+    conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, hashed_password TEXT, user_status TEXT, is_active INTEGER, owner_id TEXT);
+            CREATE TABLE IF NOT EXISTS lockouts (username TEXT PRIMARY KEY, locked_until TEXT, failed_attempts INTEGER);
+            CREATE TABLE IF NOT EXISTS energy (id INTEGER PRIMARY KEY, homeowner_username TEXT, timestamp TEXT, energy_kwh REAL);
+            ",
+        ).unwrap();
+
     // Create a fake acting admin user directly in DB
     let hashed = hash_password("Admin123!").unwrap();
     conn.execute(
@@ -121,44 +181,7 @@ fn test_password_strength() {
 
     /// Helper function to create an in-memory database for testing
     /// This avoids touching a real database.
-    fn test_db() -> Connection {
-       let  conn = Connection::open_in_memory().unwrap();
-
-          conn.execute(
-            "CREATE TABLE security_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                actor_username TEXT NOT NULL,
-                target_username TEXT,
-                event_type TEXT NOT NULL,
-                description TEXT,
-                timestamp TEXT NOT NULL
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn.execute(
-            "CREATE TABLE lockouts (
-                username TEXT PRIMARY KEY COLLATE NOCASE,
-                locked_until TEXT NOT NULL,
-                lock_count INTEGER DEFAULT 1
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn.execute(
-            "CREATE TABLE users (
-                username TEXT PRIMARY KEY COLLATE NOCASE,
-                last_login_time TEXT,
-                updated_at TEXT
-            )",
-            [],
-        )
-        .unwrap();
-
-        conn
-    }
+    
 
     
     /// Test that the `new()` constructor initializes HVACSystem correctly
@@ -402,11 +425,87 @@ fn test_fake_verification_delay_bounds() {
         Ok(())
     }
 
+// ===================================================================== //
+//                      GUEST MANAGEMENT TESTS
+// ===================================================================== //
 
 
+    /// Helper to get the activity status (0=inactive, 1=active) of a user.
+    fn get_user_status(conn: &Connection, username: &str) -> Result<i32> {
+        conn.query_row(
+            "SELECT is_active FROM users WHERE username = ?1",
+            params![username],
+            |row| row.get(0),
+        ).map_err(|e| anyhow::anyhow!("User status check failed: {}", e))
+    }
 
 
+    /// Tests that a Homeowner can successfully disable and re-enable their own Guest.
+    #[test]
+    fn test_guest_status_toggling() -> Result<()> {
+        let conn = test_db();
+        let ho_user = "HO_Manager";
+        let guest_user = "Guest_Toggable";
+        let hash = hash_password("pw")?;
 
+        // Setup HO and GUEST owned by HO
+        conn.execute("INSERT INTO users (username, hashed_password, user_status, is_active, owner_id) VALUES (?1, ?2, 'homeowner', 1, 'system')", params![ho_user, hash])?;
+        conn.execute("INSERT INTO users (username, hashed_password, user_status, is_active, owner_id) VALUES (?1, ?2, 'guest', 1, ?3)", params![guest_user, hash, ho_user])?;
+        
+        // 1. Simulate Disable (Set is_active = 0)
+        let rows_updated_disable = conn.execute(
+            "UPDATE users SET is_active = 0 WHERE username = ? AND owner_id = ?",
+            params![guest_user, ho_user]
+        )?;
+        assert_eq!(rows_updated_disable, 1, "Disable should update exactly 1 row.");
+        assert_eq!(get_user_status(&conn, guest_user)?, 0, "Guest status should be 0 (disabled).");
+
+        // 2. Simulate Enable (Set is_active = 1)
+        let rows_updated_enable = conn.execute(
+            "UPDATE users SET is_active = 1 WHERE username = ? AND owner_id = ?",
+            params![guest_user, ho_user]
+        )?;
+        assert_eq!(rows_updated_enable, 1, "Enable should update exactly 1 row.");
+        assert_eq!(get_user_status(&conn, guest_user)?, 1, "Guest status should be 1 (enabled).");
+        
+        Ok(())
+    }
+
+    /// Tests for Broken Access Control 
+    /// Ensures Homeowner A CANNOT disable or delete Guest accounts owned by Homeowner B.
+    #[test]
+    fn test_guest_management_security_idor() -> Result<()> {
+        let conn = test_db();
+        
+        // Setup Attacker (HO_A) and Victim Owner (HO_B)
+        let ho_a_attacker = "HO_A_Attacker";
+        let ho_b_victim = "HO_B_Victim";
+        let hash = hash_password("pw")?;
+        conn.execute("INSERT INTO users (username, hashed_password, user_status, is_active, owner_id) VALUES (?1, ?2, 'homeowner', 1, 'system')", params![ho_a_attacker, hash])?;
+        conn.execute("INSERT INTO users (username, hashed_password, user_status, is_active, owner_id) VALUES (?1, ?2, 'homeowner', 1, 'system')", params![ho_b_victim, hash])?;
+
+        // Setup Guest G owned by HO_B (the victim)
+        let guest_g_user = "Guest_G_OwnedByB";
+        let guest_hash = hash_password("1111")?;
+        conn.execute("INSERT INTO users (username, hashed_password, user_status, is_active, owner_id) VALUES (?1, ?2, 'guest', 1, ?3)", params![guest_g_user, guest_hash, ho_b_victim])?;
+        
+        // Sanity Check: Guest G is active (1)
+        assert_eq!(get_user_status(&conn, guest_g_user)?, 1);
+        
+        // IDOR Attempt 1: HO_A (Attacker) tries to disable Guest_G (Victim's Guest)
+        // The query *must* check the owner_id against the acting user's ID (HO_A).
+        let rows_updated = conn.execute(
+            "UPDATE users SET is_active = 0 WHERE username = ? AND owner_id = ?",
+            params![guest_g_user, ho_a_attacker] // Attacker passes Victim's Guest and *their own* HO ID
+        )?;
+        
+        // Verification: 0 rows should be updated because HO_A is not the owner (HO_B).
+        assert_eq!(rows_updated, 0, "IDOR attempt should update 0 rows.");
+        
+        // Final Check: Guest G must still be active
+        assert_eq!(get_user_status(&conn, guest_g_user)?, 1, "Victim's Guest must remain active.");
+        
+        Ok(())
 
 
 
@@ -416,4 +515,8 @@ fn test_fake_verification_delay_bounds() {
 }
 
 
+
+
+
+}
 

@@ -226,8 +226,9 @@ impl EnergyTracker {
         let energy_iter = stmt.query_map(params![username, cutoff], |row| {
             let timestamp_str: String = row.get(0)?;
             let timestamp = DateTime::parse_from_rfc3339(&timestamp_str)
-                .unwrap()
-                .with_timezone(&Local);
+    // Map the chrono::ParseError to a rusqlite::Error so the closure can propagate it.
+    .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))?
+    .with_timezone(&Local);
             
             Ok(EnergyUsage {
                 timestamp,
@@ -314,7 +315,7 @@ pub fn compare_energy_usage(conn: &Connection, username: &str) -> Result<()> {
     println!("   • Status: {}", 
         if change < -5.0 { "Improving" }
         else if change > 5.0 { "  Increasing" }
-        else { "➡️  Stable" }
+        else { " Stable" }
     );
     println!("=============================================");
 
