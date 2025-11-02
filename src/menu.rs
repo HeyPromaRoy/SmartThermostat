@@ -313,7 +313,7 @@ pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()
 //                         HOMEOWNER MENU
 // ===============================================================
 fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
-    let homeowner_id = match db::get_user_id_and_role(conn, username)? {
+    match db::get_user_id_and_role(conn, username)? {
     Some((id, role)) if role == "homeowner" => id,
     _ => {
         println!("Access denied: only homeowners can manage guests.");
@@ -326,51 +326,36 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 db::show_own_profile(conn, username)?;
                 wait_for_enter();
             },
-            "2" => {
-                println!("Registering a guest account...");
-                // homeowners can only create guests (enforced inside register_user)
-                auth::register_user(conn, Some((username, role)))?;
-            }
-            "3" => {db::list_guests_of_homeowner(conn, username)?;}
-            "4" => {
-                guest::manage_guests_menu(conn, homeowner_id, username, role, username)?;},
-            "5" => {
+            "2" => {guest::manage_guests_menu(conn, username, role, username)?;}
+            "3" => {
                 println!("🌡 Checking indoor temperature...");
                 if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
                     eprintln!("dashboard error: {e}");
                 }
                 wait_for_enter();
             },
-            "6" => {
-                hvac_control_menu(conn, username, role)?;
-            },
-            "7" => {
+
+            "4" => {
                 println!("Retrieving outdoor weather status...");
                 if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
             },
+            "5" => {hvac_control_menu(conn, username, role)?;},
+            "6" => {show_system_status(conn, username, role)?;},
+            "7" => {manage_profiles_menu(conn, username, role)?;},
             "8" => {
-                show_system_status(conn, username, role)?;
-            },
-            "9" => {
-                manage_profiles_menu(conn, username, role)?;
-            },
-
-            "A" => {
                 if let Err(e) = energy::view_energy_usage(conn, username) {
                         println!("Error generating energy report: {}", e);
                     }
                     wait_for_enter();
-            }
-
-            "C" => {
+            },
+            "9" => { 
                 technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
-            }
-
-            "D" => {
+            },
+            "A" => {
                 println!("Your active technician access grants:");
                 db::list_active_grants(conn, username)?;
                 wait_for_enter();
@@ -469,7 +454,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
 // ===============================================================
 fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
     
-    let _technician_id = match db::get_user_id_and_role(conn, username)? {
+ match db::get_user_id_and_role(conn, username)? {
         Some((id, role)) if role == "technician" => id,
         _ => {
             println!("Access denied: invalid technician account.");
@@ -503,9 +488,9 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             println!("No homeowner entered.");
             } else {
             match db::get_user_id_and_role(conn, homeowner_username)? {
-                Some((homeowner_id, h_role)) if h_role == "homeowner" => {
+                Some((_homeowner_id, h_role)) if h_role == "homeowner" => {
                     // Pass homeowner_id (not technician_id) and the homeowner's username
-                    guest::manage_guests_menu(conn, homeowner_id,
+                    guest::manage_guests_menu(conn,
                         username,            // acting technician username
                         role,                // "technician"
                         homeowner_username,  // target homeowner
@@ -838,6 +823,7 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
+
 
 
 
