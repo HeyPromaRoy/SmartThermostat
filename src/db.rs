@@ -264,6 +264,9 @@ pub fn init_system_db() -> Result<Connection> {
     
     // Migrate existing hvac_state table to add light_status if it doesn't exist
     migrate_hvac_state_table(&conn)?;
+    
+    // Migrate security_log table to add technician event types
+    migrate_security_log_table(&conn)?;
 
     // Seed default profiles if missing
     seed_default_profiles(&conn)?;
@@ -1083,6 +1086,60 @@ fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
             conn.execute(
                 "ALTER TABLE hvac_state ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
                 [],
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn migrate_security_log_table(conn: &Connection) -> Result<()> {
+    // Check if we need to migrate by examining the table schema
+    let needs_migration = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_log'",
+        [],
+        |r| r.get::<_, String>(0),
+    ).optional()?;
+    
+    if let Some(schema) = needs_migration {
+        // Check if schema contains the new event types
+        if !schema.contains("ACCESS_GRANTED") || !schema.contains("TECH_ACCESS") {
+            // Recreate table with updated CHECK constraint
+            conn.execute_batch(
+                r#"
+                -- Create new table with updated CHECK constraint
+                CREATE TABLE security_log_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_username TEXT NOT NULL,
+                    target_username TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(
+                        event_type IN (
+                            'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 
+                            'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
+                            'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 
+                            'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC',
+                            'ACCESS_GRANTED', 'TECH_ACCESS', 'ACCESS_EXPIRED'
+                        )
+                    ),
+                    description TEXT,
+                    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                -- Copy existing data
+                INSERT INTO security_log_new (id, actor_username, target_username, event_type, description, timestamp)
+                SELECT id, actor_username, target_username, event_type, description, timestamp
+                FROM security_log;
+
+                -- Drop old table
+                DROP TABLE security_log;
+
+                -- Rename new table
+                ALTER TABLE security_log_new RENAME TO security_log;
+
+                -- Recreate indexes
+                CREATE INDEX ix_security_log_actor ON security_log(actor_username);
+                CREATE INDEX ix_security_log_target ON security_log(target_username);
+                "#
             )?;
         }
     }
