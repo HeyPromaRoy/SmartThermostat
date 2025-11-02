@@ -135,17 +135,17 @@ impl EnergyTracker {
         let total_energy: f64 = data.iter().map(|d| d.energy_kwh).sum();
         let avg_daily: f64 = daily_usage.values().sum::<f64>() / daily_usage.len() as f64;
         
-        println!("🌈✨=============================================✨🌈");
-        println!("⚡  ENERGY USAGE REPORT");
+        println!("=============================================");
+        println!("  ENERGY USAGE REPORT");
         println!();
-        println!("📊  Summary:");
+        println!(" Summary:");
         println!("   • Total Energy Used: {:.2} kWh", total_energy);
         println!("   • Average Daily: {:.2} kWh", avg_daily);
         println!("   • Efficiency Rating: {}", efficiency);
         println!("   • Period: {} days", daily_usage.len());
         println!();
         
-        println!("🌡️  Usage by Mode:");
+        println!("  Usage by Mode:");
         let mut mode_vec: Vec<(&String, &f64)> = mode_usage.iter().collect();
         mode_vec.sort_by(|a, b| b.1.partial_cmp(a.1).unwrap());
         
@@ -165,7 +165,7 @@ impl EnergyTracker {
         }
         println!();
         
-        println!("📅  Daily Usage (Last 7 days):");
+        println!(" Daily Usage (Last 7 days):");
         let mut daily_vec: Vec<(&String, &f64)> = daily_usage.iter().collect();
         daily_vec.sort_by(|a, b| b.0.cmp(a.0)); // sort by date descending
         
@@ -173,7 +173,7 @@ impl EnergyTracker {
             println!("   • {}: {:.1} kWh", date, energy);
         }
         
-        println!("🌈✨=============================================✨🌈");
+        println!("=============================================");
     }
 
     /// Store energy data in database (for historical tracking)
@@ -249,7 +249,7 @@ impl EnergyTracker {
 
 /// Main function to view energy usage (called from menu)
 pub fn view_energy_usage(conn: &Connection, username: &str) -> Result<()> {
-    println!("\n📊 Generating energy usage report...");
+    println!("\n Generating energy usage report...");
     
     // Try to load existing data, or generate mock data
     let energy_data = match EnergyTracker::load_energy_data(conn, username, 30) {
@@ -300,8 +300,8 @@ pub fn compare_energy_usage(conn: &Connection, username: &str) -> Result<()> {
         0.0
     };
 
-    println!("🌈✨=============================================✨🌈");
-    println!("📈 ENERGY USAGE COMPARISON");
+    println!("=============================================");
+    println!(" ENERGY USAGE COMPARISON");
     println!();
     println!("Current Period (Last 30 days):");
     println!("   • Total Energy: {:.1} kWh", current_total);
@@ -309,14 +309,14 @@ pub fn compare_energy_usage(conn: &Connection, username: &str) -> Result<()> {
     println!("Previous Period (30-60 days ago):");
     println!("   • Total Energy: {:.1} kWh", previous_total);
     println!();
-    println!("📊 Comparison:");
+    println!(" Comparison:");
     println!("   • Change: {:.1}%", change);
     println!("   • Status: {}", 
-        if change < -5.0 { "✅ Improving" }
-        else if change > 5.0 { "⚠️  Increasing" }
+        if change < -5.0 { "Improving" }
+        else if change > 5.0 { "  Increasing" }
         else { "➡️  Stable" }
     );
-    println!("🌈✨=============================================✨🌈");
+    println!("=============================================");
 
     Ok(())
 }

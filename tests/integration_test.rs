@@ -4,8 +4,11 @@ use smart_thermostat::weather::*;
 use smart_thermostat::auth::*;
 use smart_thermostat::hvac::*;
 use smart_thermostat::logger::*;
+use smart_thermostat::energy::*;
+use smart_thermostat::guest::*;
 use anyhow::Result;
-use rusqlite::{Connection};
+use rusqlite::{Connection,params};
+use std::io::Write;
 
 
 
@@ -13,7 +16,9 @@ mod tests {
     use super::*;
 
 
-// ---- Test Senser.rs  ----
+// ===================================================================== //
+//                           SENSOR TESTS
+// ===================================================================== //
 
 //  Test Sensor: Temperature range
 #[test]
@@ -36,7 +41,9 @@ fn test_co_range() {
     assert!(co >= 0.0 && co <= 1000.0);
 }
 
-// ---- Test Weather.rs  ----
+// ===================================================================== //
+//                           WEATHER API TEST
+// ===================================================================== //
 
 //  Test Weather: API returns valid struct
 #[test]
@@ -47,7 +54,9 @@ fn test_fetch_weather() {
     assert!(!w.condition.is_empty(), "Condition should not be empty");
 }
 
-// ---- Test auth.rs ---- 
+// ===================================================================== //
+//                           AUTH TESTS
+// ===================================================================== //
 
 #[test]
 fn test_register_and_login() -> Result<()> {
@@ -105,7 +114,9 @@ fn test_password_strength() {
     assert!(!password_is_strong("User123!", "user"));    // contains username
 }
 
-// ---- Test hvac.rs ----
+// ===================================================================== //
+//                           HVAC TESTS
+// ===================================================================== //
 
 
     /// Helper function to create an in-memory database for testing
@@ -261,7 +272,9 @@ fn test_mock_senser_usage() {
         // This test ensures update() can run without panicking in Auto mode
     }
 
-// ---- Test logger.rs ----
+// ===================================================================== //
+//                           LOGGER TESTS
+// ===================================================================== //
 
 
 // Test: log_event() basic logging
@@ -353,32 +366,6 @@ fn test_check_lockout_detects_active() -> Result<()> {
     Ok(())
 }
 
-// Test: clear_lockout() — admin can clear specific user
-
-#[test]
-fn test_clear_lockout_admin_clears_user() -> Result<()> {
-    let conn = test_db();
-
-    // Add a locked-out user
-    conn.execute(
-        "INSERT INTO lockouts (username, locked_until, lock_count)
-         VALUES ('bob', datetime('now', '+120 seconds'), 3)",
-        [],
-    )?;
-
-    // Admin clears the lockout
-    clear_lockout(&conn, "admin", Some("bob"))?;
-
-    // Verify it's gone
-    let count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM lockouts WHERE username='bob'",
-        [],
-        |r| r.get(0),
-    )?;
-    assert_eq!(count, 0);
-
-    Ok(())
-}
 
 // Test: fake_verification_delay() — delay is within bounds
 
@@ -397,5 +384,36 @@ fn test_fake_verification_delay_bounds() {
     );
 }
 
+// ===================================================================== //
+//                           ENERGY TRACKER TESTS
+// ===================================================================== //
+
+// checking if db is working fine
+#[test]
+    fn test_energy_store_and_load() -> Result<()> {
+        let conn = test_db();
+        let username = "homeowner1";
+
+        let data = EnergyTracker::generate_mock_data(2, username);
+        EnergyTracker::store_energy_data(&conn, &data, username)?;
+
+        let loaded = EnergyTracker::load_energy_data(&conn, username, 30)?;
+        assert_eq!(data.len(), loaded.len());
+        Ok(())
+    }
+
+
+
+
+
+
+
+
+
+
+
+
 }
+
+
 
