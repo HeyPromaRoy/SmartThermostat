@@ -1586,7 +1586,6 @@ dependencies = [
  "ed25519-dalek",
  "hex",
  "lazy_static",
- "libsqlite3-sys",
  "once_cell",
  "rand",
  "regex",
