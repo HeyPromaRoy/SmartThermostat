@@ -148,20 +148,95 @@ pub fn guest_login_user(conn: &mut Connection) -> Result<Option<String>> {
 }
 
 // Enables a guest account belonging to the homeowner
-pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
-    //Ensure homeowner is valid and active (sanity check)
-    // This prevents enabling guests if the homeowner account itself was disabled
+pub fn enable_guest(conn: &mut Connection, acting_username: &str) -> Result<()> {
+    // Fetch acting user's role and status
+    let (acting_role, acting_active): (String, i64) = conn
+        .query_row(
+            "SELECT user_status, COALESCE(is_active,1)
+             FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or(("guest".to_string(), 0));
+
+    if acting_active != 1 {
+        println!("Your account is disabled.");
+        return Ok(());
+    }
+
+    // Determine homeowner context
+    let (homeowner_id, homeowner_username): (i64, String) = match acting_role.as_str() {
+        // Homeowner acts on their own guests
+        "homeowner" => match db::get_user_id_and_role(conn, acting_username)? {
+            Some((id, status)) if status == "homeowner" => (id, acting_username.to_string()),
+            _ => {
+                println!("Acting user is not a valid homeowner.");
+                return Ok(());
+            }
+        },
+
+        // Technician acts under a homeowner they have permission for
+        "technician" => {
+            // get currently permitted homeowner for this technician
+            let homeowner_username_opt: Option<String> = conn
+                .query_row(
+                    r#"
+                    SELECT homeowner_username
+                      FROM technician_jobs
+                     WHERE technician_username = ?1 COLLATE NOCASE
+                       AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+                       AND datetime(updated_at, printf('+%d minutes', access_minutes)) > datetime('now')
+                     ORDER BY updated_at DESC
+                     LIMIT 1
+                    "#,
+                    params![acting_username],
+                    |r| r.get(0),
+                )
+                .optional()?;
+
+            let Some(homeowner_username) = homeowner_username_opt else {
+                println!("Technician '{acting_username}' has no active homeowner access grants.");
+                return Ok(());
+            };
+
+            // verify permission
+            if !db::tech_has_perm(conn, acting_username, &homeowner_username)? {
+                println!(
+                    "Technician '{}' does not have permission to manage guests under homeowner '{}'.",
+                    acting_username, homeowner_username
+                );
+                return Ok(());
+            }
+
+            // resolve homeowner ID
+            match db::get_user_id_and_role(conn, &homeowner_username)? {
+                Some((id, status)) if status == "homeowner" => (id, homeowner_username),
+                _ => {
+                    println!("Failed to resolve homeowner '{}'.", homeowner_username);
+                    return Ok(());
+                }
+            }
+        }
+
+        _ => {
+            println!("Only homeowners or authorized technicians can enable guest accounts.");
+            return Ok(());
+        }
+    };
+
+    // Verify that homeowner account is active
     let homeowner_active: i64 = conn.query_row(
         "SELECT is_active FROM users WHERE id = ?1 AND user_status = 'homeowner'",
         params![homeowner_id],
         |r| r.get(0),
     )?;
     if homeowner_active == 0 {
-        println!("Your account is inactive. Please contact an administrator.");
+        println!("Homeowner account is inactive. Please contact an administrator.");
         return Ok(());
     }
 
-    // List all guests owned by this homeowner
+    // List all guests under this homeowner
     let mut stmt = conn.prepare(
         "SELECT username, is_active, created_at, last_login_time
          FROM users
@@ -169,29 +244,29 @@ pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
            AND homeowner_id = ?1
          ORDER BY created_at DESC",
     )?;
-    // execute the query and map each result row into a tuple
+
     let guests = stmt
         .query_map(params![homeowner_id], |r| {
             Ok((
-                r.get::<_, String>(0)?, // guest username
-                r.get::<_, i64>(1)?,    // active flag
-                r.get::<_, String>(2)?, // created_at
-                r.get::<_, Option<String>>(3)?, // optional last_login_time
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
 
-
-    if guests.is_empty() { //no existing guests
-        println!("You have no registered guests.");
+    if guests.is_empty() {
+        println!("No guests found under homeowner '{}'.", homeowner_username);
         return Ok(());
     }
-    // Display guests for selection
-    println!("\n Guests under your account:");
+
+    // Display guests
+    println!("\nGuests under homeowner '{}':", homeowner_username);
     for (i, (username, active, created_at, last_login)) in guests.iter().enumerate() {
-        // convert the numeric active flag into readable status
         let status = if *active == 1 { "Active" } else { "Disabled" };
-        println!( //show each guest with formatted details
+        println!(
             "{}. {} ({}) - Created: {} | Last Login: {}",
             i + 1,
             username,
@@ -201,26 +276,26 @@ pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
         );
     }
 
-    //Prompt user to pick guest number
+    // Choose guest
     print!("\nEnter the number of the guest to enable: ");
-    io::stdout().flush().ok(); //prompt
+    io::stdout().flush().ok();
     let mut choice = String::new();
-    io::stdin().read_line(&mut choice).ok(); //read user input
-    let choice = choice.trim().parse::<usize>();
-    //extract guest from list by index
-    let (guest_username, active) = match choice.ok().and_then(|n| guests.get(n - 1)) {
-        // if valid, get username and active flag        
+    io::stdin().read_line(&mut choice).ok();
+    let choice = choice.trim().parse::<usize>().ok();
+
+    let (guest_username, active) = match choice.and_then(|n| guests.get(n - 1)) {
         Some((uname, active, _, _)) => (uname.clone(), *active),
-        None => { //handle invalid input
+        None => {
             println!("Invalid selection.");
             return Ok(());
         }
     };
-    // preventing redundant activation
+
     if active == 1 {
         println!("Guest '{}' is already active.", guest_username);
         return Ok(());
     }
+
 
     // Enable guest confirmation to prevent accidental actions
     print!("Confirm enabling guest '{}'? (yes/no): ", guest_username);
@@ -233,7 +308,6 @@ pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
     }
 
     //Execute DB update in transcation
-    drop(stmt);
     let tx = conn.transaction()?;
     let affected = tx.execute(
         "UPDATE users
@@ -245,8 +319,9 @@ pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
     tx.commit()?; //commit if successfuly
 
     if affected > 0 { //provide feedback
+          let desc = format!("Guest {} enabled by {}", &guest_username, &acting_username);
         println!("Guest '{}' has been enabled successfully.", guest_username);
-        logger::log_event(conn, homeowner_username, Some(&guest_username), "ACCOUNT_ENABLED", Some("Homeowner enabled guest account"))?;
+        logger::log_event(conn, &acting_username, Some(&guest_username), "ACCOUNT_ENABLED", Some(&desc))?;
     } else {
         println!("Failed to enable guest '{}'.", guest_username);
     }
@@ -254,18 +329,92 @@ pub fn enable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
     Ok(())
 }
 
-// Disables a guest account owned by the authenticated homeowner.
-/// Uses `homeowner_id` for secure identity binding instead of relying on usernames.
-pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
-    //Ensure homeowner is valid and active (sanity check)
-    // This prevents enabling guests if the homeowner account itself was disabled
+// Disables a guest account owned by the authenticated homeowner and technician
+pub fn disable_guest(conn: &mut Connection, acting_username: &str) -> Result<()> {
+// Fetch acting user's role and active status
+    let (acting_role, acting_active): (String, i64) = conn
+        .query_row(
+            "SELECT user_status, COALESCE(is_active,1)
+             FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or(("guest".to_string(), 0));
+
+    if acting_active != 1 {
+        println!("Your account is disabled.");
+        return Ok(());
+    }
+
+    // Determine homeowner context
+    let (homeowner_id, homeowner_username): (i64, String) = match acting_role.as_str() {
+        // Homeowner acts on their own guests
+        "homeowner" => match db::get_user_id_and_role(conn, acting_username)? {
+            Some((id, status)) if status == "homeowner" => (id, acting_username.to_string()),
+            _ => {
+                println!("Acting user is not a valid homeowner.");
+                return Ok(());
+            }
+        },
+
+        // Technician can only act if tech_has_perm() says so
+        "technician" => {
+            // find which homeowner this technician currently has permission for
+            let homeowner_username_opt: Option<String> = conn
+                .query_row(
+                    r#"
+                    SELECT homeowner_username
+                      FROM technician_jobs
+                     WHERE technician_username = ?1 COLLATE NOCASE
+                       AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+                       AND datetime(updated_at, printf('+%d minutes', access_minutes)) > datetime('now')
+                     ORDER BY updated_at DESC
+                     LIMIT 1
+                    "#,
+                    params![acting_username],
+                    |r| r.get(0),
+                )
+                .optional()?;
+
+            let Some(homeowner_username) = homeowner_username_opt else {
+                println!("Technician '{acting_username}' has no active homeowner access grants.");
+                return Ok(());
+            };
+
+            // confirm technician is authorized
+            if !db::tech_has_perm(conn, acting_username, &homeowner_username)? {
+                println!(
+                    "Technician '{}' does not have permission to manage guests under homeowner '{}'.",
+                    acting_username, homeowner_username
+                );
+                return Ok(());
+            }
+
+            // resolve homeowner id
+            match db::get_user_id_and_role(conn, &homeowner_username)? {
+                Some((id, status)) if status == "homeowner" => (id, homeowner_username),
+                _ => {
+                    println!("Failed to resolve homeowner '{}'.", homeowner_username);
+                    return Ok(());
+                }
+            }
+        }
+
+        _ => {
+            println!("Only homeowners or authorized technicians can disable guest accounts.");
+            return Ok(());
+        }
+    };
+
+    // Sanity check: ensure homeowner is active
     let homeowner_active: i64 = conn.query_row(
         "SELECT is_active FROM users WHERE id = ?1 AND user_status = 'homeowner'",
         params![homeowner_id],
         |r| r.get(0),
     )?;
     if homeowner_active == 0 {
-        println!("Your account is inactive. Please contact an administrator.");
+        println!("Homeowner account is inactive. Please contact an administrator.");
         return Ok(());
     }
 
@@ -275,28 +424,25 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
          FROM users WHERE user_status = 'guest' AND homeowner_id = ?1
          ORDER BY created_at DESC",
     )?;
-
-    
     let guests = stmt
         .query_map(params![homeowner_id], |r| {
             Ok((
-                r.get::<_, String>(0)?, // username
-                r.get::<_, i64>(1)?,    // is_active
-                r.get::<_, String>(2)?, // created_at
-                r.get::<_, Option<String>>(3)?, // last_login_time
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
 
-        drop(stmt);
-
-    if guests.is_empty() { //no existing guest users
-        println!("You have no registered guests.");
+    if guests.is_empty() {
+        println!("No registered guests found under homeowner '{}'.", homeowner_username);
         return Ok(());
     }
 
-    // Display guests for selection
-    println!("\nGuests under your account:");
+    // Display guests
+    println!("\nGuests under homeowner '{}':", homeowner_username);
     for (i, (username, active, created_at, last_login)) in guests.iter().enumerate() {
         let status = if *active == 1 { "Active" } else { "Disabled" };
         println!(
@@ -309,44 +455,41 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
         );
     }
 
-    // Prompt user to pick one
+    // Select which guest to disable
     print!("\nEnter the number of the guest to disable: ");
     io::stdout().flush().ok();
     let mut choice = String::new();
     io::stdin().read_line(&mut choice).ok();
-    let choice = choice.trim().parse::<usize>();
+    let choice = choice.trim().parse::<usize>().ok();
 
-    let (guest_username, active) = match choice.ok().and_then(|n| guests.get(n - 1)) {
+    let (guest_username, active) = match choice.and_then(|n| guests.get(n - 1)) {
         Some((uname, active, _, _)) => (uname.clone(), *active),
         None => {
             println!("Invalid selection.");
             return Ok(());
         }
     };
-    // Prevent re-disabling
+
     if active == 0 {
         println!("Guest '{}' is already disabled.", guest_username);
         return Ok(());
     }
 
-    // Verify homeowner password before modifying guest status
+    // Verify *acting user’s own password* (homeowner or technician)
     println!("\nPlease verify your identity to disable '{}':", guest_username);
     print!("Enter your password: ");
     io::stdout().flush().ok();
     let pw_in = Zeroizing::new(read_password()?);
     let password = pw_in.trim_end_matches(['\r', '\n']);
 
-    // Fetch stored hash for the homeowner
     let stored_hash_opt: Option<String> = conn
         .query_row(
-            "SELECT hashed_password FROM users 
-             WHERE username = ?1 AND user_status = 'homeowner' COLLATE NOCASE",
-            params![homeowner_username],
+            "SELECT hashed_password FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
             |r| r.get(0),
         )
         .optional()?;
 
-    // Verify password securely
     let auth_success = match stored_hash_opt {
         Some(stored_hash) => crate::auth::verify_password(&password, &stored_hash)?,
         None => {
@@ -355,26 +498,31 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
         }
     };
 
-    // Authentication check
     if !auth_success {
-    println!("Authentication failed. Action canceled.");
-    return Ok(());
+        println!("Authentication failed. Action canceled.");
+        return Ok(());
     }
 
-    //only runs if authentication succeeded
+    // Disable the guest
     let affected = conn.execute(
-    "UPDATE users
-     SET is_active = 0, updated_at = datetime('now')
-     WHERE username = ?1 AND homeowner_id = ?2",
-    params![guest_username, homeowner_id],
+        "UPDATE users
+         SET is_active = 0, updated_at = datetime('now')
+         WHERE username = ?1 AND homeowner_id = ?2",
+        params![guest_username, homeowner_id],
     )?;
 
-    // handle result
     if affected > 0 {
-    println!("Guest '{}' has been disabled successfully.", guest_username);
-    logger::log_event(conn, homeowner_username, Some(&guest_username), "ACCOUNT_ENABLED", Some("Homeowner disabled guest account"))?;
+        let desc = format!("Guest {} disabled by {}", &guest_username, &acting_username);
+        println!("Guest '{}' has been disabled successfully.", guest_username);
+        logger::log_event(
+            conn,
+            &acting_username,
+            Some(&guest_username),
+            "ACCOUNT_DISABLED",
+            Some(&desc),
+        )?;
     } else {
-    println!("Failed to disable guest '{}'.", guest_username);
+        println!("Failed to disable guest '{}'.", guest_username);
     }
 
     Ok(())
@@ -382,8 +530,84 @@ pub fn disable_guest(conn: &mut Connection, homeowner_id: i64, homeowner_usernam
 
 
 // delete guest (ensures the guest belongs to homeowner)
-pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
-    //List all guests for this homeowner
+pub fn delete_guest(conn: &mut Connection, acting_username: &str) -> Result<()> {
+    // Fetch acting user's role and active state
+    let (acting_role, acting_active): (String, i64) = conn
+        .query_row(
+            "SELECT user_status, COALESCE(is_active,1)
+             FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or(("guest".to_string(), 0));
+
+    if acting_active != 1 {
+        println!("Your account is disabled.");
+        return Ok(());
+    }
+
+    // Determine homeowner context
+    let (homeowner_id, homeowner_username): (i64, String) = match acting_role.as_str() {
+        // Homeowner acts on their own guests
+        "homeowner" => match db::get_user_id_and_role(conn, acting_username)? {
+            Some((id, status)) if status == "homeowner" => (id, acting_username.to_string()),
+            _ => {
+                println!("Acting user is not a valid homeowner.");
+                return Ok(());
+            }
+        },
+
+        // Technician must have permission to a homeowner
+        "technician" => {
+            // Find which homeowner the technician currently has an active grant for
+            let homeowner_username_opt: Option<String> = conn
+                .query_row(
+                    r#"
+                    SELECT homeowner_username
+                      FROM technician_jobs
+                     WHERE technician_username = ?1 COLLATE NOCASE
+                       AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+                       AND datetime(updated_at, printf('+%d minutes', access_minutes)) > datetime('now')
+                     ORDER BY updated_at DESC
+                     LIMIT 1
+                    "#,
+                    params![acting_username],
+                    |r| r.get(0),
+                )
+                .optional()?;
+
+            let Some(homeowner_username) = homeowner_username_opt else {
+                println!("Technician '{acting_username}' has no active homeowner access grants.");
+                return Ok(());
+            };
+
+            // Verify permission via tech_has_perm()
+            if !db::tech_has_perm(conn, acting_username, &homeowner_username)? {
+                println!(
+                    "Technician '{}' does not have permission to manage guests under homeowner '{}'.",
+                    acting_username, homeowner_username
+                );
+                return Ok(());
+            }
+
+            // Resolve homeowner id
+            match db::get_user_id_and_role(conn, &homeowner_username)? {
+                Some((id, status)) if status == "homeowner" => (id, homeowner_username),
+                _ => {
+                    println!("Failed to resolve homeowner '{}'.", homeowner_username);
+                    return Ok(());
+                }
+            }
+        }
+
+        _ => {
+            println!("Only homeowners or authorized technicians can delete guest accounts.");
+            return Ok(());
+        }
+    };
+
+    // List all guests under the homeowner
     let mut stmt = conn.prepare(
         "SELECT username, is_active, created_at, last_login_time
          FROM users
@@ -395,21 +619,20 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
     let guests = stmt
         .query_map(params![homeowner_id], |r| {
             Ok((
-                r.get::<_, String>(0)?,          // username
-                r.get::<_, i64>(1)?,             // is_active
-                r.get::<_, String>(2)?,          // created_at
-                r.get::<_, Option<String>>(3)?,  // last_login_time
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
 
     if guests.is_empty() {
-        println!("You have no registered guests.");
+        println!("No registered guests found under homeowner '{}'.", homeowner_username);
         return Ok(());
     }
 
-    // Display all guests in a user-friendly format
-    println!("\nGuests under your account:");
+    println!("\nGuests under homeowner '{}':", homeowner_username);
     for (i, (username, active, created_at, last_login)) in guests.iter().enumerate() {
         let status = if *active == 1 { "Active" } else { "Disabled" };
         println!(
@@ -422,7 +645,7 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
         );
     }
 
-    //Ask user which guest to delete
+    // Select which guest to delete
     print!("\nEnter the number of the guest to delete: ");
     io::stdout().flush().ok();
     let mut choice = String::new();
@@ -437,25 +660,27 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
         }
     };
 
-    //Verify homeowner identity via password
-    println!("\nPlease verify your identity to delete '{}':", guest_username);
+    // Ask for the acting user's own password (tech or homeowner)
+    println!(
+        "\nPlease verify your identity to delete guest '{}':",
+        guest_username
+    );
     print!("Enter your password: ");
     io::stdout().flush().ok();
     let pw_in = Zeroizing::new(read_password()?);
     let password = pw_in.trim_end_matches(['\r', '\n']);
 
-    // Fetch the homeowner’s Argon2 hash
+    // Fetch and verify password for the ACTING user
     let stored_hash_opt: Option<String> = conn
         .query_row(
             "SELECT hashed_password
              FROM users
-             WHERE id = ?1 AND user_status = 'homeowner'",
-            params![homeowner_id],
+             WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
             |r| r.get(0),
         )
         .optional()?;
 
-    // Verify password securely
     let auth_success = match stored_hash_opt {
         Some(stored_hash) => crate::auth::verify_password(&password, &stored_hash)?,
         None => {
@@ -464,13 +689,12 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
         }
     };
 
-
     if !auth_success {
         println!("Authentication failed. Action canceled.");
         return Ok(());
     }
 
-    //  Delete guest safely in a transaction
+    // Delete guest inside a transaction
     drop(stmt);
     let tx = conn.transaction()?;
     let affected = tx.execute(
@@ -482,10 +706,15 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
     )?;
     tx.commit()?;
 
-    // Report and log result
     if affected > 0 {
+        let desc = format!("Guest {} deleted by {}", &guest_username, &acting_username);
         println!("Guest '{}' has been deleted successfully.", guest_username);
-        logger::log_event(conn, homeowner_username, Some(&guest_username), "ACCOUNT_DELETED", Some("Homeowner dleted guest account"))?;
+        logger::log_event(
+            conn,
+            &acting_username,
+            Some(&guest_username),
+            "ACCOUNT_DELETED",
+            Some(&desc))?;
     } else {
         println!("Failed to delete guest '{}'.", guest_username);
     }
@@ -494,34 +723,122 @@ pub fn delete_guest(conn: &mut Connection, homeowner_id: i64, homeowner_username
 }
 
 
-pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_username: &str) -> Result<()> {
-    //List all guests owned by this homeowner
+
+pub fn reset_guest_pin(conn: &mut Connection, acting_username: &str) -> Result<()> {
+    // Get acting user's role and active status
+    let (acting_role, acting_active): (String, i64) = conn
+        .query_row(
+            "SELECT user_status, COALESCE(is_active,1)
+             FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or(("guest".to_string(), 0));
+
+    if acting_active != 1 {
+        println!("Your account is disabled.");
+        return Ok(());
+    }
+
+    // Determine homeowner context
+    let (homeowner_id, homeowner_username): (i64, String) = match acting_role.as_str() {
+        // Homeowner acting on their own guests
+        "homeowner" => match db::get_user_id_and_role(conn, acting_username)? {
+            Some((id, status)) if status == "homeowner" => (id, acting_username.to_string()),
+            _ => {
+                println!("Acting user is not a valid homeowner.");
+                return Ok(());
+            }
+        },
+
+        // Technician acting under a permitted homeowner
+        "technician" => {
+            // get the active homeowner the tech has access to
+            let homeowner_username_opt: Option<String> = conn
+                .query_row(
+                    r#"
+                    SELECT homeowner_username
+                      FROM technician_jobs
+                     WHERE technician_username = ?1 COLLATE NOCASE
+                       AND status IN ('ACCESS_GRANTED','TECH_ACCESS')
+                       AND datetime(updated_at, printf('+%d minutes', access_minutes)) > datetime('now')
+                     ORDER BY updated_at DESC
+                     LIMIT 1
+                    "#,
+                    params![acting_username],
+                    |r| r.get(0),
+                )
+                .optional()?;
+
+            let Some(homeowner_username) = homeowner_username_opt else {
+                println!("Technician '{acting_username}' has no active homeowner access grants.");
+                return Ok(());
+            };
+
+            // Confirm permission
+            if !db::tech_has_perm(conn, acting_username, &homeowner_username)? {
+                println!(
+                    "Technician '{}' does not have permission to manage guests under homeowner '{}'.",
+                    acting_username, homeowner_username
+                );
+                return Ok(());
+            }
+
+            // Resolve homeowner id
+            match db::get_user_id_and_role(conn, &homeowner_username)? {
+                Some((id, status)) if status == "homeowner" => (id, homeowner_username),
+                _ => {
+                    println!("Failed to resolve homeowner '{}'.", homeowner_username);
+                    return Ok(());
+                }
+            }
+        }
+
+        _ => {
+            println!("Only homeowners or authorized technicians can reset guest PINs.");
+            return Ok(());
+        }
+    };
+
+    // Verify homeowner is active
+    let homeowner_active: i64 = conn.query_row(
+        "SELECT is_active FROM users WHERE id = ?1 AND user_status = 'homeowner'",
+        params![homeowner_id],
+        |r| r.get(0),
+    )?;
+    if homeowner_active == 0 {
+        println!("Homeowner account is inactive. Please contact an administrator.");
+        return Ok(());
+    }
+
+    // List all guests for this homeowner
     let mut stmt = conn.prepare(
         "SELECT username, is_active, created_at, last_login_time
          FROM users
          WHERE homeowner_id = ?1
            AND user_status = 'guest'
-         ORDER BY created_at DESC"
+         ORDER BY created_at DESC",
     )?;
-
     let guests = stmt
         .query_map(params![homeowner_id], |r| {
             Ok((
-                r.get::<_, String>(0)?,          // username
-                r.get::<_, i64>(1)?,             // is_active
-                r.get::<_, String>(2)?,          // created_at
-                r.get::<_, Option<String>>(3)?,  // last_login_time
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, Option<String>>(3)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?;
+    drop(stmt);
 
     if guests.is_empty() {
-        println!("You have no registered guests.");
+        println!("No registered guests under homeowner '{}'.", homeowner_username);
         return Ok(());
     }
 
     // Display guests neatly
-    println!("\nGuests under your account:");
+    println!("\nGuests under homeowner '{}':", homeowner_username);
     for (i, (username, active, created_at, last_login)) in guests.iter().enumerate() {
         let status = if *active == 1 { "Active" } else { "Disabled" };
         println!(
@@ -534,7 +851,7 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
         );
     }
 
-    // Let homeowner choose which guest’s PIN to reset
+    // Pick guest
     print!("\nEnter the number of the guest to reset PIN: ");
     io::stdout().flush().ok();
     let mut input = String::new();
@@ -554,8 +871,11 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
         return Ok(());
     }
 
-    // Authenticate homeowner by password
-    println!("\nPlease verify your identity before resetting '{}':", guest_username);
+    // Verify acting user's password (homeowner or technician)
+    println!(
+        "\nPlease verify your identity before resetting PIN for '{}':",
+        guest_username
+    );
     print!("Enter your password: ");
     io::stdout().flush().ok();
     let pw_in = Zeroizing::new(read_password()?);
@@ -563,8 +883,8 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
 
     let stored_hash_opt: Option<String> = conn
         .query_row(
-            "SELECT hashed_password FROM users WHERE id = ?1 AND user_status = 'homeowner'",
-            params![homeowner_id],
+            "SELECT hashed_password FROM users WHERE username = ?1 COLLATE NOCASE",
+            params![acting_username],
             |r| r.get(0),
         )
         .optional()?;
@@ -582,23 +902,21 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
         return Ok(());
     }
 
-    //Prompt for new PIN (min 6 chars)
+    // Prompt for new PIN
     print!("\nEnter new PIN for '{}': ", guest_username);
     io::stdout().flush().ok();
     let new_pin_in: Zeroizing<String> = Zeroizing::new(read_password()?);
-    let new_pin_trimmed: &str = new_pin_in.trim_end_matches(['\r','\n']);
+    let new_pin_trimmed: &str = new_pin_in.trim_end_matches(['\r', '\n']);
 
     if new_pin_trimmed.len() < 6 {
         println!("PIN must be at least 6 characters long.");
         return Ok(());
     }
 
-    //Hash new PIN securely (Argon2id)
-    let hashed_pin = crate::auth::hash_password(&new_pin_trimmed)?;
+    // Hash new PIN securely
+    let hashed_pin = crate::auth::hash_password(new_pin_trimmed)?;
 
-
-    // Update guest’s PIN atomically
-   drop(stmt);
+    // Update PIN atomically
     let tx = conn.transaction()?;
     let affected = tx.execute(
         "UPDATE users
@@ -611,10 +929,15 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
     )?;
     tx.commit()?;
 
-    // Confirm 
     if affected > 0 {
         println!("PIN for '{}' has been successfully reset!", guest_username);
-        logger::log_event(conn, homeowner_username, Some(&guest_username), "PASSWORD_CHANGE", None)?;
+        logger::log_event(
+            conn,
+            &acting_username,
+            Some(&guest_username),
+            "PASSWORD_CHANGE",
+            Some("Guest PIN reset by homeowner or technician"),
+        )?;
     } else {
         println!("Failed to reset PIN for '{}'.", guest_username);
     }
@@ -622,13 +945,11 @@ pub fn reset_guest_pin(conn: &mut Connection, homeowner_id: i64, homeowner_usern
     Ok(())
 }
 
-
-pub fn manage_guests_menu(conn: &mut Connection, _owner_id: i64, 
-    acting_username: &str, acting_role: &str, homeowner_username: &str) -> Result<()> {
+pub fn manage_guests_menu(conn: &mut Connection, acting_username: &str, acting_role: &str, homeowner_username: &str) -> Result<()> {
     
-     // Resolve homeowner
-    let homeowner_id = match db::get_user_id_and_role(conn, homeowner_username)? {
-        Some((id, role)) if role == "homeowner" => id,
+    // Resolve homeowner validity once
+    match db::get_user_id_and_role(conn, homeowner_username)? {
+        Some((_id, role)) if role == "homeowner" => {}
         _ => {
             println!("Invalid homeowner '{}'.", homeowner_username);
             return Ok(());
@@ -686,13 +1007,15 @@ pub fn manage_guests_menu(conn: &mut Connection, _owner_id: i64,
         }
 
         match choice.trim() {
-            "1" => {
+            "1" => {auth::register_user(conn, Some((acting_username, acting_role)))?},
+            "2" => {db::list_guests_of_homeowner(conn, homeowner_username)?;},
+            "3" => {
                 println!("\n======= Reset Guest PIN =======");
-                if let Err(e) = reset_guest_pin(conn, homeowner_id, homeowner_username) {
+                if let Err(e) = reset_guest_pin(conn, acting_username) {
                     println!("Error: {}", e);
                 }
             }
-            "2" => {
+            "4" => {
                 println!("\n======= Enable/Disable Guest =======");
                 println!("[1] Enable Guest");
                 println!("[2] Disable Guest");
@@ -706,12 +1029,12 @@ pub fn manage_guests_menu(conn: &mut Connection, _owner_id: i64,
                 } else {
                     match sub_choice.trim() {
                         "1" => {
-                            if let Err(e) = enable_guest(conn, homeowner_id, homeowner_username) {
+                            if let Err(e) = enable_guest(conn, acting_username) {
                                 println!("Error: {}", e);
                             }
                         }
                         "2" => {
-                            if let Err(e) = disable_guest(conn, homeowner_id, homeowner_username) {
+                            if let Err(e) = disable_guest(conn, acting_username) {
                                 println!("Error: {}", e);
                             }
                         }
@@ -719,13 +1042,13 @@ pub fn manage_guests_menu(conn: &mut Connection, _owner_id: i64,
                     }
                 }
             }
-            "3" => {
+            "5" => {
                 println!("\n======= Delete Guest =======");
-                if let Err(e) = delete_guest(conn, homeowner_id, homeowner_username) {
+                if let Err(e) = delete_guest(conn, acting_username) {
                     println!("Error: {}", e);
                 }
             }
-            "4" => {
+            "6" => {
                 println!("Returning to Menu...");
                 break;
             }
