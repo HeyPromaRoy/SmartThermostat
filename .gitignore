@@ -10,3 +10,4 @@
 
 # Ignore specific files
 sqlite3
+.env
