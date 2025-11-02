@@ -267,6 +267,12 @@ pub fn init_system_db() -> Result<Connection> {
 
     // Seed default profiles if missing
     seed_default_profiles(&conn)?;
+    
+    // Update Party profile to have light ON (fix for existing databases)
+    conn.execute(
+        "UPDATE profiles SET light_status = 'ON' WHERE name = 'Party' AND (light_status IS NULL OR light_status = 'OFF')",
+        [],
+    )?;
 
     Ok(conn)
 }
@@ -1164,11 +1170,11 @@ pub fn update_profile_row(
 pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
     if let Some(def) = default_profile_row(name) {
         conn.execute(
-            "INSERT INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, vacation_start_date, vacation_end_date, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, NULL, NULL, datetime('now'))
+            "INSERT INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date, updated_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, datetime('now'))
              ON CONFLICT(name) DO UPDATE SET mode = excluded.mode, target_temp = excluded.target_temp, greeting = excluded.greeting, description = excluded.description, 
-             heater_status = excluded.heater_status, ac_status = excluded.ac_status, vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now')",
-            params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status],
+             heater_status = excluded.heater_status, ac_status = excluded.ac_status, light_status = excluded.light_status, vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now')",
+            params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status],
         )?;
     }
     Ok(())

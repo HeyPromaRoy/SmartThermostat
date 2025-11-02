@@ -643,6 +643,8 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
                     // For guests/technicians: Return to main menu
                     if user_role == "homeowner" {
                         profile_selection_menu(conn, username, user_role)?;
+                        // Reload HVAC state from database after profile change
+                        hvac = hvac::HVACSystem::new(conn);
                     } else {
                         // Option 4 is "Return to Main Menu" for non-homeowners
                         break;

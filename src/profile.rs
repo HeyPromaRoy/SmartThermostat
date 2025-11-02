@@ -89,6 +89,11 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     hvac.set_mode(conn, mode);
     hvac.set_target_temperature(conn, temperature);
     
+    // Update light status from profile
+    if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
+        hvac.set_light_status(conn, &row.light_status);
+    }
+    
     // Display profile application with decorative format
     let greet = greeting_opt.as_deref().unwrap_or(profile.greeting_message());
     let now = Local::now();
