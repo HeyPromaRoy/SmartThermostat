@@ -191,10 +191,12 @@ pub fn manage_guest_menu() {
     println!("{}{}{}", spacing1,  menu_spc, "GUEST MANAGEMENT MENU".bold().color(title_color));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
     
-    println!("{}{}", spacing2, "[1] Reset Guest Pin".color(text_color));
-    println!("{}{}", spacing2, "[2] Enable/Disable Guest Account".color(text_color));
-    println!("{}{}", spacing2, "[3] Delete Guest Account".color(text_color));
-    println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
+    println!("{}{}", spacing2, "[1] Register Guest".color(text_color));
+    println!("{}{}", spacing2, "[2] View guest(s)".color(text_color));
+    println!("{}{}", spacing2, "[3] Reset Guest Pin".color(text_color));
+    println!("{}{}", spacing2, "[4] Enable/Disable Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[5] Delete Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[6] Return to User Menu".color(text_color));
 
     println!();
     print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
@@ -314,5 +316,6 @@ pub fn profile_selection_ui() {
     println!();
     print!("{}","Select a profile [0-6]: ".bold().color(Color::Cyan));
 }
+
 
 
