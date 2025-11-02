@@ -352,19 +352,20 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                     wait_for_enter();
             },
             "9" => { 
+                if let Err(e) = energy::compare_energy_usage(conn, username) {
+                println!("Error comparing energy usage: {}", e);
+                wait_for_enter(); }
                 technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
             },
             "A" => {
-                println!("Your active technician access grants:");
-                db::list_active_grants(conn, username)?;
+                technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
             }
             "B" => {
-
-                if let Err(e) = energy::compare_energy_usage(conn, username) {
-                        println!("Error comparing energy usage: {}", e);
-                        wait_for_enter(); }
+                println!("Your active technician access grants:");
+                db::list_active_grants(conn, username)?;
+                wait_for_enter();
             }
 
             "0" => {
@@ -823,6 +824,7 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
+
 
 
 
