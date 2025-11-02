@@ -264,6 +264,9 @@ pub fn init_system_db() -> Result<Connection> {
     
     // Migrate existing hvac_state table to add light_status if it doesn't exist
     migrate_hvac_state_table(&conn)?;
+    
+    // Migrate security_log table to add technician event types
+    migrate_security_log_table(&conn)?;
 
     // Seed default profiles if missing
     seed_default_profiles(&conn)?;
@@ -1039,12 +1042,44 @@ fn migrate_profiles_table(conn: &Connection) -> Result<()> {
     
     if let Ok(count) = column_check {
         if count == 0 {
-            // Add new columns to existing table
+            // Recreate table with new columns (no ALTER TABLE)
             conn.execute_batch(
-                "ALTER TABLE profiles ADD COLUMN heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto'));
-                 ALTER TABLE profiles ADD COLUMN ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto'));
-                 ALTER TABLE profiles ADD COLUMN vacation_start_date TEXT;
-                 ALTER TABLE profiles ADD COLUMN vacation_end_date TEXT;"
+                r#"
+                -- Create new table with all columns
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy existing data from old table
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    'Auto' as heater_status,
+                    'Auto' as ac_status,
+                    NULL as vacation_start_date,
+                    NULL as vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table to original name
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
             )?;
         }
     }
@@ -1058,10 +1093,46 @@ fn migrate_profiles_table(conn: &Connection) -> Result<()> {
     
     if let Ok(count) = light_column_check {
         if count == 0 {
-            // Add light_status column
-            conn.execute(
-                "ALTER TABLE profiles ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
-                [],
+            // Recreate table again to add light_status column
+            conn.execute_batch(
+                r#"
+                -- Create new table with light_status column
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy all existing data
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    heater_status,
+                    ac_status,
+                    'OFF' as light_status,
+                    vacation_start_date,
+                    vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
             )?;
         }
     }
@@ -1079,10 +1150,88 @@ fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
     
     if let Ok(count) = light_column_check {
         if count == 0 {
-            // Add light_status column
-            conn.execute(
-                "ALTER TABLE hvac_state ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
-                [],
+            // Recreate table with light_status column (no ALTER TABLE)
+            conn.execute_batch(
+                r#"
+                -- Create new table with light_status column
+                CREATE TABLE hvac_state_new (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temperature REAL NOT NULL,
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy existing data
+                INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, updated_at)
+                SELECT 
+                    id, 
+                    mode, 
+                    target_temperature,
+                    'OFF' as light_status,
+                    updated_at
+                FROM hvac_state;
+
+                -- Drop old table
+                DROP TABLE hvac_state;
+
+                -- Rename new table
+                ALTER TABLE hvac_state_new RENAME TO hvac_state;
+                "#
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn migrate_security_log_table(conn: &Connection) -> Result<()> {
+    // Check if we need to migrate by examining the table schema
+    let needs_migration = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_log'",
+        [],
+        |r| r.get::<_, String>(0),
+    ).optional()?;
+    
+    if let Some(schema) = needs_migration {
+        // Check if schema contains the new event types
+        if !schema.contains("ACCESS_GRANTED") || !schema.contains("TECH_ACCESS") {
+            // Recreate table with updated CHECK constraint
+            conn.execute_batch(
+                r#"
+                -- Create new table with updated CHECK constraint
+                CREATE TABLE security_log_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_username TEXT NOT NULL,
+                    target_username TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(
+                        event_type IN (
+                            'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 
+                            'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
+                            'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 
+                            'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC',
+                            'ACCESS_GRANTED', 'TECH_ACCESS', 'ACCESS_EXPIRED'
+                        )
+                    ),
+                    description TEXT,
+                    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                -- Copy existing data
+                INSERT INTO security_log_new (id, actor_username, target_username, event_type, description, timestamp)
+                SELECT id, actor_username, target_username, event_type, description, timestamp
+                FROM security_log;
+
+                -- Drop old table
+                DROP TABLE security_log;
+
+                -- Rename new table
+                ALTER TABLE security_log_new RENAME TO security_log;
+
+                -- Recreate indexes
+                CREATE INDEX ix_security_log_actor ON security_log(actor_username);
+                CREATE INDEX ix_security_log_target ON security_log(target_username);
+                "#
             )?;
         }
     }

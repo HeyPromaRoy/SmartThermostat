@@ -151,6 +151,66 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                 }
             }
 
+            // Check if vacation mode is currently active and switching to a different profile
+            if !matches!(profile, HVACProfile::Vacation) && is_vacation_mode_active(conn)? {
+                // Only homeowner can deactivate vacation mode
+                if user_role != "homeowner" {
+                    println!("❌ Access denied: Vacation mode is active. Only homeowners can change profiles.");
+                    wait_for_enter();
+                    return Ok(());
+                }
+                
+                println!("\n⚠️  VACATION MODE IS CURRENTLY ACTIVE");
+                println!("════════════════════════════════════════════════");
+                println!("You are attempting to switch to a different profile.");
+                println!("This will deactivate vacation mode and restore");
+                println!("guest and technician access to the system.");
+                println!("════════════════════════════════════════════════");
+                print!("\nDo you want to turn OFF vacation mode and switch to the new profile? (y/n): ");
+                io::stdout().flush()?;
+                
+                if let Some(confirm) = prompt_input() {
+                    if confirm.trim().eq_ignore_ascii_case("y") {
+                        // Require password verification
+                        println!("\n🔐 Security Check: Please re-enter your password to deactivate vacation mode");
+                        print!("Password: ");
+                        io::stdout().flush()?;
+                        
+                        if let Some(password) = prompt_input() {
+                            // Get stored password hash
+                            let stored_hash: String = conn.query_row(
+                                "SELECT hashed_password FROM users WHERE username = ?1",
+                                params![username],
+                                |row| row.get(0),
+                            )?;
+                            
+                            if !auth::verify_password(&password, &stored_hash)? {
+                                println!("❌ Incorrect password. Profile change cancelled.");
+                                wait_for_enter();
+                                return Ok(());
+                            }
+                        } else {
+                            println!("❌ Password required. Profile change cancelled.");
+                            wait_for_enter();
+                            return Ok(());
+                        }
+                        
+                        // Clear vacation dates
+                        db::clear_vacation_dates(conn)?;
+                        println!("✓ Vacation mode has been deactivated.");
+                        println!("✓ Guest and technician access is now restored.");
+                    } else {
+                        println!("Profile change cancelled. Vacation mode remains active.");
+                        wait_for_enter();
+                        return Ok(());
+                    }
+                } else {
+                    println!("Profile change cancelled. Vacation mode remains active.");
+                    wait_for_enter();
+                    return Ok(());
+                }
+            }
+
             let mut hvac = HVACSystem::new(conn);
             apply_profile(conn, &mut hvac, profile, username, user_role);
             println!("\n✓ Profile applied successfully!");
