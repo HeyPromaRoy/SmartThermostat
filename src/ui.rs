@@ -95,11 +95,11 @@ pub fn homeowner_ui() {
     println!("{}{}{}", spacing1, menu_spc, "HOMEOWNER MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] View profile              |  [5] HVAC Control".color(Color::White));
-    println!("{}{}", spacing2, "[2] Manage Guests             |  [6] View System Status".color(Color::White));
-    println!("{}{}", spacing2, "[3] Indoor Sensing            |  [7] Profile Settings".color(Color::White));
-    println!("{}{}", spacing2, "[4] Outdoor Weather           |  [8] Energy Usage".color(Color::White));
-    println!("{}{}", spacing2, "[5] HVAC Control              |  [9] Energy Comparison".color(Color::White));
+    println!("{}{}", spacing2, "[1] View profile              |  [6] View System Status".color(Color::White));
+    println!("{}{}", spacing2, "[2] Manage Guests             |  [7] Profile Settings".color(Color::White));
+    println!("{}{}", spacing2, "[3] Indoor Sensing            |  [8] Energy Usage".color(Color::White));
+    println!("{}{}", spacing2, "[4] Outdoor Weather           |  [9] Energy Comparison".color(Color::White));
+    println!("{}{}", spacing2, "[5] HVAC Control              |  ".color(Color::White));
     println!("{}{}", spacing2, "[A] Request a Technician      |  [B] View Active Grants".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
@@ -316,6 +316,7 @@ pub fn profile_selection_ui() {
     println!();
     print!("{}","Select a profile [0-6]: ".bold().color(Color::Cyan));
 }
+
 
 
 
