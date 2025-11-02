@@ -695,28 +695,21 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
                     wait_for_enter();
                 }
                 "3" => {
-                    hvac.diagnostics(conn);
-                    wait_for_enter();
-                }
-                "4" => {
-                    // For homeowners: Choose Profile
-                    // For guests/technicians: Return to main menu
+                    // Option 3 behavior depends on user role
                     if user_role == "homeowner" {
+                        // Homeowners: Choose Profile
                         profile_selection_menu(conn, username, user_role)?;
                         // Reload HVAC state from database after profile change
                         hvac = hvac::HVACSystem::new(conn);
                     } else {
-                        // Option 4 is "Return to Main Menu" for non-homeowners
-                        break;
+                        // Guests/Technicians: Run Diagnostics
+                        hvac.diagnostics(conn);
+                        wait_for_enter();
                     }
                 }
-                "5" => {
-                    // Only homeowners see option 5 (Return to Main Menu)
-                    if user_role == "homeowner" {
-                        break;
-                    } else {
-                        println!("Invalid option. Please try again.");
-                    }
+                "4" => {
+                    // Option 4 is "Return to Main Menu" for everyone
+                    break;
                 }
                 _ => println!("Invalid option. Please try again."),
             },

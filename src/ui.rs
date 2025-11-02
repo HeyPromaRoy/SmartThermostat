@@ -247,15 +247,17 @@ pub fn hvac_control_ui(user_role: &str) {
     
     println!("{}{}", spacing2, "[1] Change Mode (Heat/Cool/Auto/Fan/Off)".color(text_color));
     println!("{}{}", spacing2, "[2] View Current Status".color(text_color));
-    println!("{}{}", spacing2, "[3] Run Diagnostics".color(text_color));
     
-    // Only show "Choose Profile" option for homeowners
+    // Different menu options based on user role
     if user_role == "homeowner" {
-        println!("{}{}", spacing2, "[4] Choose Profile".color(text_color));
-        println!("{}{}", spacing2, "[5] Return to Main Menu".color(text_color));
+        // Homeowners: No diagnostics option
+        println!("{}{}", spacing2, "[3] Choose Profile".color(text_color));
+        println!("{}{}", spacing2, "[4] Return to Main Menu".color(text_color));
         println!();
-        print!("{}","Select an option [1-5]: ".bold().color(Color::Cyan));
+        print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
     } else {
+        // Guests/Technicians: Include diagnostics
+        println!("{}{}", spacing2, "[3] Run Diagnostics".color(text_color));
         println!("{}{}", spacing2, "[4] Return to Main Menu".color(text_color));
         println!();
         print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
