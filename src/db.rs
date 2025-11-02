@@ -948,6 +948,7 @@ pub struct ProfileRow {
     pub heater_status: String,
     pub ac_status: String,
     pub light_status: String,
+    pub fan_speed: String,
     #[allow(dead_code)]
     pub vacation_start_date: Option<String>,
     #[allow(dead_code)]
@@ -961,10 +962,11 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             mode: "Auto".to_string(),
             target_temp: 22.0,
             greeting: Some("☀️ Hope you have a good day!".to_string()),
-            description: Some("Auto mode, comfort-oriented, 21-23°C / 24-26°C, Auto fan, Comfort".to_string()),
+            description: Some("Auto mode, comfort-oriented, 21-23°C / 24-26°C, Medium fan, Comfort".to_string()),
             heater_status: "Auto".to_string(),
             ac_status: "Auto".to_string(),
             light_status: "OFF".to_string(),
+            fan_speed: "Medium".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -977,6 +979,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             heater_status: "Auto".to_string(),
             ac_status: "Auto".to_string(),
             light_status: "ON".to_string(),
+            fan_speed: "Low".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -985,10 +988,11 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             mode: "Heating".to_string(),
             target_temp: 25.0,
             greeting: Some("😴 Sleep well and sweet dreams!".to_string()),
-            description: Some("Heating preferred, quiet fan, 18-20°C heating / 26-28°C cooling, Fan off/low, Energy saving".to_string()),
+            description: Some("Heating preferred, quiet fan, 18-20°C heating / 26-28°C cooling, Low fan, Energy saving".to_string()),
             heater_status: "On".to_string(),
             ac_status: "Off".to_string(),
             light_status: "OFF".to_string(),
+            fan_speed: "Low".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -997,10 +1001,11 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             mode: "Cooling".to_string(),
             target_temp: 20.0,
             greeting: Some("🎊 Let's get this party started!".to_string()),
-            description: Some("Cooling with ventilation, 22°C heating / 23-24°C cooling, Medium-high fan, Comfort prioritized".to_string()),
+            description: Some("Cooling with ventilation, 22°C heating / 23-24°C cooling, High fan, Comfort prioritized".to_string()),
             heater_status: "Off".to_string(),
             ac_status: "On".to_string(),
             light_status: "ON".to_string(),
+            fan_speed: "High".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -1013,6 +1018,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             heater_status: "Off".to_string(),
             ac_status: "Off".to_string(),
             light_status: "OFF".to_string(),
+            fan_speed: "Low".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -1025,6 +1031,7 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
             heater_status: "Off".to_string(),
             ac_status: "Off".to_string(),
             light_status: "OFF".to_string(),
+            fan_speed: "Low".to_string(),
             vacation_start_date: None,
             vacation_end_date: None,
         }),
@@ -1122,6 +1129,61 @@ fn migrate_profiles_table(conn: &Connection) -> Result<()> {
                     heater_status,
                     ac_status,
                     'OFF' as light_status,
+                    vacation_start_date,
+                    vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
+            )?;
+        }
+    }
+    
+    // Check if fan_speed column exists
+    let fan_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name='fan_speed'",
+        [],
+        |r| r.get(0),
+    );
+    
+    if let Ok(count) = fan_column_check {
+        if count == 0 {
+            // Recreate table again to add fan_speed column
+            conn.execute_batch(
+                r#"
+                -- Create new table with fan_speed column
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    fan_speed TEXT DEFAULT 'Medium' CHECK(fan_speed IN ('Low','Medium','High')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy all existing data
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    heater_status,
+                    ac_status,
+                    light_status,
+                    'Medium' as fan_speed,
                     vacation_start_date,
                     vacation_end_date,
                     updated_at
@@ -1245,8 +1307,8 @@ fn seed_default_profiles(conn: &Connection) -> Result<()> {
     for name in defaults.iter() {
         if let Some(def) = default_profile_row(name) {
             conn.execute(
-                "INSERT OR IGNORE INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status],
+                "INSERT OR IGNORE INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status, def.fan_speed],
             )?;
         }
     }
@@ -1255,7 +1317,7 @@ fn seed_default_profiles(conn: &Connection) -> Result<()> {
 
 pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRow>> {
     let mut stmt = conn.prepare(
-        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date FROM profiles WHERE name = ?1",
+        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, vacation_start_date, vacation_end_date FROM profiles WHERE name = ?1",
     )?;
     let row = stmt
         .query_row(params![name], |r| {
@@ -1268,8 +1330,9 @@ pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRo
                 heater_status: r.get::<_, Option<String>>(5)?.unwrap_or_else(|| "Auto".to_string()),
                 ac_status: r.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Auto".to_string()),
                 light_status: r.get::<_, Option<String>>(7)?.unwrap_or_else(|| "OFF".to_string()),
-                vacation_start_date: r.get::<_, Option<String>>(8)?,
-                vacation_end_date: r.get::<_, Option<String>>(9)?,
+                fan_speed: r.get::<_, Option<String>>(8)?.unwrap_or_else(|| "Medium".to_string()),
+                vacation_start_date: r.get::<_, Option<String>>(9)?,
+                vacation_end_date: r.get::<_, Option<String>>(10)?,
             })
         })
         .optional()?;
@@ -1278,7 +1341,7 @@ pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRo
 
 pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
     let mut stmt = conn.prepare(
-        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date FROM profiles ORDER BY name",
+        "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, vacation_start_date, vacation_end_date FROM profiles ORDER BY name",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -1291,8 +1354,9 @@ pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
                 heater_status: r.get::<_, Option<String>>(5)?.unwrap_or_else(|| "Auto".to_string()),
                 ac_status: r.get::<_, Option<String>>(6)?.unwrap_or_else(|| "Auto".to_string()),
                 light_status: r.get::<_, Option<String>>(7)?.unwrap_or_else(|| "OFF".to_string()),
-                vacation_start_date: r.get(8)?,
-                vacation_end_date: r.get(9)?,
+                fan_speed: r.get::<_, Option<String>>(8)?.unwrap_or_else(|| "Medium".to_string()),
+                vacation_start_date: r.get(9)?,
+                vacation_end_date: r.get(10)?,
             })
         })?;
     let mut out = Vec::new();
@@ -1319,11 +1383,11 @@ pub fn update_profile_row(
 pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
     if let Some(def) = default_profile_row(name) {
         conn.execute(
-            "INSERT INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date, updated_at) 
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, NULL, NULL, datetime('now'))
+            "INSERT INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, vacation_start_date, vacation_end_date, updated_at) 
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL, datetime('now'))
              ON CONFLICT(name) DO UPDATE SET mode = excluded.mode, target_temp = excluded.target_temp, greeting = excluded.greeting, description = excluded.description, 
-             heater_status = excluded.heater_status, ac_status = excluded.ac_status, light_status = excluded.light_status, vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now')",
-            params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status],
+             heater_status = excluded.heater_status, ac_status = excluded.ac_status, light_status = excluded.light_status, fan_speed = excluded.fan_speed, vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now')",
+            params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status, def.fan_speed],
         )?;
     }
     Ok(())
@@ -1346,6 +1410,128 @@ pub fn clear_vacation_dates(conn: &Connection) -> Result<()> {
         "UPDATE profiles SET vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now') WHERE name = 'Vacation'",
         [],
     )?;
+    Ok(())
+}
+
+// ======================================================
+//          PROFILE MANAGEMENT (CREATE/DELETE)
+// ======================================================
+
+const DEFAULT_PROFILES: [&str; 6] = ["Day", "Night", "Sleep", "Party", "Vacation", "Away"];
+
+/// Check if a profile name is a default/protected profile
+pub fn is_default_profile(name: &str) -> bool {
+    DEFAULT_PROFILES.iter().any(|&p| p.eq_ignore_ascii_case(name))
+}
+
+/// Validate profile name (3-20 chars, letters/numbers/spaces only, no duplicates)
+pub fn validate_profile_name(conn: &Connection, name: &str) -> Result<Option<String>> {
+    let trimmed = name.trim();
+    
+    // Check length
+    if trimmed.len() < 3 || trimmed.len() > 20 {
+        return Ok(Some("Profile name must be 3-20 characters long".to_string()));
+    }
+    
+    // Check allowed characters (letters, numbers, spaces)
+    if !trimmed.chars().all(|c| c.is_alphanumeric() || c.is_whitespace()) {
+        return Ok(Some("Profile name can only contain letters, numbers, and spaces".to_string()));
+    }
+    
+    // Check if it's a protected default profile name
+    if is_default_profile(trimmed) {
+        return Ok(Some("Cannot use default profile names (Day/Night/Sleep/Party/Vacation/Away)".to_string()));
+    }
+    
+    // Check for duplicates (case-insensitive)
+    let exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM profiles WHERE LOWER(name) = LOWER(?1)",
+        params![trimmed],
+        |r| r.get(0),
+    )?;
+    
+    if exists > 0 {
+        return Ok(Some(format!("Profile '{}' already exists", trimmed)));
+    }
+    
+    Ok(None) // No error
+}
+
+/// Create a new custom profile
+pub fn create_profile(
+    conn: &Connection,
+    name: &str,
+    mode: &str,
+    target_temp: f32,
+    greeting: Option<&str>,
+    description: Option<&str>,
+    heater_status: &str,
+    ac_status: &str,
+    light_status: &str,
+    fan_speed: &str,
+) -> Result<()> {
+    // Validate the profile name
+    if let Some(error) = validate_profile_name(conn, name)? {
+        return Err(anyhow!(error));
+    }
+    
+    // Insert the new profile
+    conn.execute(
+        "INSERT INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, updated_at) 
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))",
+        params![name.trim(), mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed],
+    )?;
+    
+    Ok(())
+}
+
+/// Delete a custom profile (cannot delete default profiles)
+pub fn delete_profile(conn: &Connection, name: &str) -> Result<()> {
+    // Check if it's a default profile
+    if is_default_profile(name) {
+        return Err(anyhow!("Cannot delete default profile '{}'", name));
+    }
+    
+    // Check if profile exists
+    let exists: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM profiles WHERE name = ?1 COLLATE NOCASE",
+        params![name],
+        |r| r.get(0),
+    )?;
+    
+    if exists == 0 {
+        return Err(anyhow!("Profile '{}' does not exist", name));
+    }
+    
+    // Delete the profile
+    conn.execute(
+        "DELETE FROM profiles WHERE name = ?1 COLLATE NOCASE",
+        params![name],
+    )?;
+    
+    Ok(())
+}
+
+/// Update profile with full control over all parameters
+pub fn update_profile_full(
+    conn: &Connection,
+    name: &str,
+    mode: &str,
+    target_temp: f32,
+    greeting: Option<&str>,
+    description: Option<&str>,
+    heater_status: &str,
+    ac_status: &str,
+    light_status: &str,
+    fan_speed: &str,
+) -> Result<()> {
+    conn.execute(
+        "UPDATE profiles SET mode = ?2, target_temp = ?3, greeting = ?4, description = ?5, 
+         heater_status = ?6, ac_status = ?7, light_status = ?8, fan_speed = ?9, updated_at = datetime('now') 
+         WHERE name = ?1 COLLATE NOCASE",
+        params![name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed],
+    )?;
+    
     Ok(())
 }
 
