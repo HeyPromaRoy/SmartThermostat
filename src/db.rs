@@ -1042,12 +1042,44 @@ fn migrate_profiles_table(conn: &Connection) -> Result<()> {
     
     if let Ok(count) = column_check {
         if count == 0 {
-            // Add new columns to existing table
+            // Recreate table with new columns (no ALTER TABLE)
             conn.execute_batch(
-                "ALTER TABLE profiles ADD COLUMN heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto'));
-                 ALTER TABLE profiles ADD COLUMN ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto'));
-                 ALTER TABLE profiles ADD COLUMN vacation_start_date TEXT;
-                 ALTER TABLE profiles ADD COLUMN vacation_end_date TEXT;"
+                r#"
+                -- Create new table with all columns
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy existing data from old table
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    'Auto' as heater_status,
+                    'Auto' as ac_status,
+                    NULL as vacation_start_date,
+                    NULL as vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table to original name
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
             )?;
         }
     }
@@ -1061,10 +1093,46 @@ fn migrate_profiles_table(conn: &Connection) -> Result<()> {
     
     if let Ok(count) = light_column_check {
         if count == 0 {
-            // Add light_status column
-            conn.execute(
-                "ALTER TABLE profiles ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
-                [],
+            // Recreate table again to add light_status column
+            conn.execute_batch(
+                r#"
+                -- Create new table with light_status column
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy all existing data
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    heater_status,
+                    ac_status,
+                    'OFF' as light_status,
+                    vacation_start_date,
+                    vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
             )?;
         }
     }
@@ -1082,10 +1150,34 @@ fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
     
     if let Ok(count) = light_column_check {
         if count == 0 {
-            // Add light_status column
-            conn.execute(
-                "ALTER TABLE hvac_state ADD COLUMN light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF'))",
-                [],
+            // Recreate table with light_status column (no ALTER TABLE)
+            conn.execute_batch(
+                r#"
+                -- Create new table with light_status column
+                CREATE TABLE hvac_state_new (
+                    id INTEGER PRIMARY KEY CHECK(id = 1),
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temperature REAL NOT NULL,
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy existing data
+                INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, updated_at)
+                SELECT 
+                    id, 
+                    mode, 
+                    target_temperature,
+                    'OFF' as light_status,
+                    updated_at
+                FROM hvac_state;
+
+                -- Drop old table
+                DROP TABLE hvac_state;
+
+                -- Rename new table
+                ALTER TABLE hvac_state_new RENAME TO hvac_state;
+                "#
             )?;
         }
     }
