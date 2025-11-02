@@ -457,7 +457,9 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             } else { println!("Cancelled."); }
         }
             "5" => println!("Running diagnostics (coming soon)..."),
-            "6" => println!("Viewing system events (coming soon)..."),
+            "6" => {
+                show_system_status(conn, username, role)?;
+            },
             "7"  => {
                 println!("🌡 Checking indoor temperature...");
                 if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
@@ -666,19 +668,27 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
 //                  SYSTEM STATUS (TIME + SCHEDULE)
 // ===============================================================
 fn show_system_status(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
+    // Only homeowners and technicians can view system status
+    if user_role != "homeowner" && user_role != "technician" {
+        println!("Access denied: Only homeowners and technicians can view system status.");
+        wait_for_enter();
+        return Ok(());
+    }
+    
     let now = Local::now();
     let time_str = now.format("%Y-%m-%d %H:%M:%S").to_string();
     let scheduled = crate::profile::current_scheduled_profile();
-    println!("\n===== System Status =====");
-    println!("Current time: {}", time_str);
-    println!("Scheduled profile window: {:?}", scheduled);
-    println!("Apply this scheduled profile now? (y/n)");
-    if let Some(ans) = prompt_input() {
-        if ans.trim().eq_ignore_ascii_case("y") {
-            let mut hvac = HVACSystem::new(conn);
-            apply_profile(conn, &mut hvac, scheduled, username, user_role);
-        }
-    }
+    
+    println!("\n╔═══════════════════════════════════════════════════════╗");
+    println!("║              SYSTEM STATUS & INFORMATION              ║");
+    println!("╠═══════════════════════════════════════════════════════╣");
+    println!("║ Current Time: {:<39} ║", time_str);
+    println!("║ Scheduled Profile Window: {:<27} ║", format!("{:?}", scheduled));
+    println!("╚═══════════════════════════════════════════════════════╝");
+    
+    // Display HVAC activity log
+    db::view_hvac_activity_log(conn, username, user_role)?;
+    
     wait_for_enter();
     Ok(())
 }

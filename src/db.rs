@@ -1207,7 +1207,7 @@ pub fn log_profile_applied(
     mode: &str,
     temperature: f32,
 ) -> Result<()> {
-    let description = format!("Applied {} profile: mode={}, temp={:.1}°C", profile_name, mode, temperature);
+    let description = format!("📋 Profile applied: {} (⚙️ Mode: {}, 🌡️ Temp: {:.1}°C)", profile_name, mode, temperature);
     conn.execute(
         "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, new_value, description) 
          VALUES (?1, ?2, 'PROFILE_APPLIED', ?3, ?4, ?5)",
@@ -1229,7 +1229,7 @@ pub fn log_profile_edited(
 ) -> Result<()> {
     let old_value = old_mode.map(|m| format!("{}|{:.1}", m, old_temp.unwrap_or(0.0)));
     let new_value = format!("{}|{:.1}", new_mode, new_temp);
-    let description = format!("Edited {} profile: mode {} -> {}, temp {:.1} -> {:.1}°C", 
+    let description = format!("✏️ Profile edited: {} | ⚙️ Mode: {} → {} | 🌡️ Temp: {:.1}°C → {:.1}°C", 
                              profile_name, 
                              old_mode.unwrap_or("unknown"), 
                              new_mode, 
@@ -1250,7 +1250,7 @@ pub fn log_profile_reset(
     user_role: &str,
     profile_name: &str,
 ) -> Result<()> {
-    let description = format!("Reset {} profile to default settings", profile_name);
+    let description = format!("🔄 Profile reset: {} restored to default settings", profile_name);
     conn.execute(
         "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, description) 
          VALUES (?1, ?2, 'PROFILE_RESET', ?3, ?4)",
@@ -1267,7 +1267,7 @@ pub fn log_temperature_changed(
     old_temp: f32,
     new_temp: f32,
 ) -> Result<()> {
-    let description = format!("Changed temperature from {:.1}°C to {:.1}°C", old_temp, new_temp);
+    let description = format!("🌡️ Temperature changed: {:.1}°C → {:.1}°C", old_temp, new_temp);
     conn.execute(
         "INSERT INTO hvac_activity_log (username, user_role, action_type, old_value, new_value, description) 
          VALUES (?1, ?2, 'TEMPERATURE_CHANGED', ?3, ?4, ?5)",
@@ -1284,7 +1284,7 @@ pub fn log_mode_changed(
     old_mode: &str,
     new_mode: &str,
 ) -> Result<()> {
-    let description = format!("Changed mode from {} to {}", old_mode, new_mode);
+    let description = format!("⚙️ Mode changed: {} → {}", old_mode, new_mode);
     conn.execute(
         "INSERT INTO hvac_activity_log (username, user_role, action_type, old_value, new_value, description) 
          VALUES (?1, ?2, 'MODE_CHANGED', ?3, ?4, ?5)",
@@ -1296,9 +1296,9 @@ pub fn log_mode_changed(
 /// View HVAC activity logs (for admins/homeowners)
 #[allow(dead_code)]
 pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &str) -> Result<()> {
-    // Only admins and homeowners can view logs
-    if user_role != "admin" && user_role != "homeowner" {
-        println!("Access denied: Only admins and homeowners can view HVAC activity logs.");
+    // Only admins, homeowners, and technicians can view logs
+    if user_role != "admin" && user_role != "homeowner" && user_role != "technician" {
+        println!("Access denied: Only admins, homeowners, and technicians can view HVAC activity logs.");
         return Ok(());
     }
 
@@ -1320,9 +1320,11 @@ pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &st
         ))
     })?;
 
-    println!("\n===== HVAC Activity Log (Last 50 entries) =====");
-    println!("{:<20} {:<15} {:<12} {:<20} {}", "Timestamp", "User", "Role", "Action", "Description");
-    println!("{}", "-".repeat(100));
+    println!("\n╔════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗");
+    println!("║                                          HVAC ACTIVITY LOG (Last 50 Entries)                                       ║");
+    println!("╠════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣");
+    println!("║ {:<19} │ {:<15} │ {:<11} │ {:<18} │ {:<30} ║", "Timestamp", "Username", "Role", "Action", "Description");
+    println!("╠═════════════════════╪═════════════════╪═════════════╪════════════════════╪════════════════════════════════════╣");
 
     let mut found_any = false;
     for log in logs {
@@ -1334,17 +1336,22 @@ pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &st
         let profile_str = profile.unwrap_or_else(|| "-".to_string());
         let desc_str = desc.unwrap_or_else(|| "".to_string());
         
-        println!("{:<20} {:<15} {:<12} {:<20} {}", 
-                 ts_display, user, role, 
-                 format!("{}:{}", action, profile_str), 
-                 desc_str);
+        // Truncate long strings to fit table
+        let user_trunc = if user.len() > 15 { format!("{}...", &user[..12]) } else { user };
+        let role_trunc = if role.len() > 11 { format!("{}...", &role[..8]) } else { role };
+        let action_display = format!("{}:{}", action, profile_str);
+        let action_trunc = if action_display.len() > 18 { format!("{}...", &action_display[..15]) } else { action_display };
+        let desc_trunc = if desc_str.len() > 30 { format!("{}...", &desc_str[..27]) } else { desc_str };
+        
+        println!("║ {:<19} │ {:<15} │ {:<11} │ {:<18} │ {:<30} ║", 
+                 ts_display, user_trunc, role_trunc, action_trunc, desc_trunc);
     }
 
     if !found_any {
-        println!("(No HVAC activity logged yet.)");
+        println!("║ {:<114} ║", "(No HVAC activity logged yet.)");
     }
 
-    println!("{}", "-".repeat(100));
+    println!("╚════════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝");
     Ok(())
 }
 

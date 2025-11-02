@@ -97,7 +97,7 @@ pub fn homeowner_ui() {
 
     println!("{}{}", spacing2, "[1] View profile              |  [6] HVAC Control".color(Color::White));
     println!("{}{}", spacing2, "[2] Register a guest          |  [7] Outdoor Weather".color(Color::White));
-    println!("{}{}", spacing2, "[3] View guest(s)             |  [8] System Status".color(Color::White));
+    println!("{}{}", spacing2, "[3] View guest(s)             |  [8] View System Status".color(Color::White));
     println!("{}{}", spacing2, "[4] Manage Guests             |  [9] Profile settings".color(Color::White));
     println!("{}{}", spacing2, "[5] Indoor Sensing            |  [A] Energy Usage".color(Color::White));
     println!("{}{}", spacing2, "[B] Energy Comparison         |  [C] Request Technician".color(Color::White));
@@ -140,7 +140,7 @@ pub fn technician_ui(){
     println!("{}{}{}", spacing1, menu_spc, "TECHNICIAN MAIN MENU".bold().color(Color::BrightYellow));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
 
-    println!("{}{}", spacing2, "[1] Show my profile   |  [6] View system events".color(Color::White));
+    println!("{}{}", spacing2, "[1] Show my profile   |  [6] View System Status".color(Color::White));
     println!("{}{}", spacing2, "[2] View all jobs     |  [7] Indoor sensing".color(Color::White));
     println!("{}{}", spacing2, "[3] Access job        |  [8] Outdoor weather".color(Color::White));
     println!("{}{}", spacing2, "[4] Manage guest(s)   |  [9] Profile settings".color(Color::White));
