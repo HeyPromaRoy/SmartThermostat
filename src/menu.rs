@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::io::{self, Write};
 
 
-use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather};
+use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather, diagnostic};
 use crate::energy;
 use crate::function::{prompt_input, wait_for_enter};
 
@@ -502,7 +502,11 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             }
             } else { println!("Cancelled."); }
         }
-            "5" => println!("Running diagnostics (coming soon)..."),
+            "5" => {
+                println!("Running diagnostics...");
+                diagnostic::run_diagnostics();
+                wait_for_enter();
+            },
             "6" => {
                 show_system_status(conn, username, role)?;
             },
