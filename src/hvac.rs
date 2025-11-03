@@ -84,12 +84,6 @@ impl HVACSystem {
         }
     }
     
-    // Validates if temperature is within allowed range
-    #[allow(dead_code)]
-    pub fn is_valid_temperature(temp: f32) -> bool {
-        temp >= MIN_TEMPERATURE && temp <= MAX_TEMPERATURE
-    }
-
     pub fn set_mode(&mut self, conn: &Connection, mode: HVACMode) {
         self.mode = mode;
         

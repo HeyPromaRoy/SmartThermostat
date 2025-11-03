@@ -902,9 +902,7 @@ pub struct ProfileRow {
     pub ac_status: String,
     pub light_status: String,
     pub fan_speed: String,
-    #[allow(dead_code)]
     pub vacation_start_date: Option<String>,
-    #[allow(dead_code)]
     pub vacation_end_date: Option<String>,
 }
 
@@ -1317,23 +1315,6 @@ pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
     Ok(out)
 }
 
-#[allow(dead_code)]
-pub fn update_profile_row(
-    conn: &Connection,
-    name: &str,
-    mode: &str,
-    target_temp: f32,
-    greeting: Option<&str>,
-    description: Option<&str>,
-) -> Result<()> {
-    conn.execute(
-        "INSERT INTO profiles (name, mode, target_temp, greeting, description, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
-         ON CONFLICT(name) DO UPDATE SET mode = excluded.mode, target_temp = excluded.target_temp, greeting = excluded.greeting, description = excluded.description, updated_at = datetime('now')",
-        params![name, mode, target_temp, greeting, description],
-    )?;
-    Ok(())
-}
-
 pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
     if let Some(def) = default_profile_row(name) {
         conn.execute(
@@ -1348,7 +1329,6 @@ pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
 }
 
 // Set vacation dates for the Vacation profile
-#[allow(dead_code)]
 pub fn set_vacation_dates(conn: &Connection, start_date: &str, end_date: &str) -> Result<()> {
     conn.execute(
         "UPDATE profiles SET vacation_start_date = ?1, vacation_end_date = ?2, updated_at = datetime('now') WHERE name = 'Vacation'",
@@ -1358,7 +1338,6 @@ pub fn set_vacation_dates(conn: &Connection, start_date: &str, end_date: &str) -
 }
 
 // Clear vacation dates
-#[allow(dead_code)]
 pub fn clear_vacation_dates(conn: &Connection) -> Result<()> {
     conn.execute(
         "UPDATE profiles SET vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now') WHERE name = 'Vacation'",
@@ -1511,34 +1490,6 @@ pub fn log_profile_applied(
     Ok(())
 }
 
-// Log when a homeowner/admin edits a profile
-#[allow(dead_code)]
-pub fn log_profile_edited(
-    conn: &Connection,
-    username: &str,
-    user_role: &str,
-    profile_name: &str,
-    old_mode: Option<&str>,
-    new_mode: &str,
-    old_temp: Option<f32>,
-    new_temp: f32,
-) -> Result<()> {
-    let old_value = old_mode.map(|m| format!("{}|{:.1}", m, old_temp.unwrap_or(0.0)));
-    let new_value = format!("{}|{:.1}", new_mode, new_temp);
-    let description = format!("✏️ Profile edited: {} | ⚙️ Mode: {} → {} | 🌡️ Temp: {:.1}°C → {:.1}°C", 
-                             profile_name, 
-                             old_mode.unwrap_or("unknown"), 
-                             new_mode, 
-                             old_temp.unwrap_or(0.0), 
-                             new_temp);
-    conn.execute(
-        "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, old_value, new_value, description) 
-         VALUES (?1, ?2, 'PROFILE_EDITED', ?3, ?4, ?5, ?6)",
-        params![username, user_role, profile_name, old_value, new_value, description],
-    )?;
-    Ok(())
-}
-
 // Log when a profile is reset to defaults
 pub fn log_profile_reset(
     conn: &Connection,
@@ -1590,7 +1541,6 @@ pub fn log_mode_changed(
 }
 
 // View HVAC activity logs (for admins/homeowners)
-#[allow(dead_code)]
 pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &str) -> Result<()> {
     // Only admins, homeowners, and technicians can view logs
     if user_role != "admin" && user_role != "homeowner" && user_role != "technician" {
