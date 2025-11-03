@@ -834,33 +834,21 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
                 println!("{} (logged)", msg);
             }
         } else if let Ok(idx) = choice.parse::<usize>() {
-            // quick apply selected profile view -> open editor-like flow
+            // Profile selection - only Edit option available (no Apply from Profile Settings)
             if idx >= 1 && idx <= profiles.len() {
                 let selected_profile = &profiles[idx-1];
                 let name = selected_profile.name.clone();
-                println!("Selected {}. Choose action: [A] Apply now  [E] Edit  [Back: Enter]", name);
+                
+                // Profile Settings menu: Only Edit option (Apply must be done through HVAC Control menu)
+                println!("Selected {}. Choose action: [E] Edit  [Back: Enter]", name);
+                println!("💡 Note: To apply profiles, use the HVAC Control menu.");
+                
                 if let Some(act) = prompt_input() {
                     let t = act.trim().to_string();
                     if t.eq_ignore_ascii_case("a") {
-                        // Check if it's a default or custom profile
-                        let prof_opt = match name.as_str() {
-                            "Day" => Some(HVACProfile::Day),
-                            "Night" => Some(HVACProfile::Night),
-                            "Sleep" => Some(HVACProfile::Sleep),
-                            "Party" => Some(HVACProfile::Party),
-                            "Vacation" => Some(HVACProfile::Vacation),
-                            "Away" => Some(HVACProfile::Away),
-                            _ => None, // Custom profile
-                        };
-                        
-                        if let Some(prof) = prof_opt {
-                            // Apply default profile
-                            let mut hvac = HVACSystem::new(conn);
-                            apply_profile(conn, &mut hvac, prof, admin_username, current_role);
-                        } else {
-                            // Apply custom profile
-                            apply_custom_profile(conn, admin_username, current_role, selected_profile)?;
-                        }
+                        println!("❌ Profiles cannot be applied from Profile Settings menu.");
+                        println!("   Please use HVAC Control menu to apply profiles (with proper security checks).");
+                        wait_for_enter();
                     } else if t.eq_ignore_ascii_case("e") {
                         // loop back into edit branch by simulating 'E'
                         // Simpler: prompt again with E
