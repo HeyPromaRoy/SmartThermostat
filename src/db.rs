@@ -214,6 +214,18 @@ pub fn init_system_db<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
     )
     .context("Failed to initialize tables in system.db")?;
 
+    // Migrate existing profiles table to add new columns if they don't exist
+    migrate_profiles_table(&conn)?;
+    
+    // Migrate existing hvac_state table to add light_status if it doesn't exist
+    migrate_hvac_state_table(&conn)?;
+    
+    // Migrate security_log table to add technician event types
+    migrate_security_log_table(&conn)?;
+
+    // Seed default profiles if missing
+    seed_default_profiles(&conn)?;
+    
     // Update Party profile to have light ON (fix for existing databases)
     conn.execute(
         "UPDATE profiles SET light_status = 'ON' WHERE name = 'Party' AND (light_status IS NULL OR light_status = 'OFF')",
@@ -980,6 +992,292 @@ fn default_profile_row(name: &str) -> Option<ProfileRow> {
     }
 }
 
+fn migrate_profiles_table(conn: &Connection) -> Result<()> {
+    // Check if heater_status column exists
+    let column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name='heater_status'",
+        [],
+        |r| r.get(0),
+    );
+    
+    if let Ok(count) = column_check {
+        if count == 0 {
+            // Recreate table with new columns (no ALTER TABLE)
+            conn.execute_batch(
+                r#"
+                -- Create new table with all columns
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy existing data from old table
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    'Auto' as heater_status,
+                    'Auto' as ac_status,
+                    NULL as vacation_start_date,
+                    NULL as vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table to original name
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
+            )?;
+        }
+    }
+    
+    // Check if light_status column exists
+    let light_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name='light_status'",
+        [],
+        |r| r.get(0),
+    );
+    
+    if let Ok(count) = light_column_check {
+        if count == 0 {
+            // Recreate table again to add light_status column
+            conn.execute_batch(
+                r#"
+                -- Create new table with light_status column
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy all existing data
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    heater_status,
+                    ac_status,
+                    'OFF' as light_status,
+                    vacation_start_date,
+                    vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
+            )?;
+        }
+    }
+    
+    // Check if fan_speed column exists
+    let fan_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('profiles') WHERE name='fan_speed'",
+        [],
+        |r| r.get(0),
+    );
+    
+    if let Ok(count) = fan_column_check {
+        if count == 0 {
+            // Recreate table again to add fan_speed column
+            conn.execute_batch(
+                r#"
+                -- Create new table with fan_speed column
+                CREATE TABLE profiles_new (
+                    name TEXT PRIMARY KEY,
+                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                    target_temp REAL NOT NULL,
+                    greeting TEXT,
+                    description TEXT,
+                    heater_status TEXT DEFAULT 'Auto' CHECK(heater_status IN ('On','Off','Auto')),
+                    ac_status TEXT DEFAULT 'Auto' CHECK(ac_status IN ('On','Off','Auto')),
+                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                    fan_speed TEXT DEFAULT 'Medium' CHECK(fan_speed IN ('Low','Medium','High')),
+                    vacation_start_date TEXT,
+                    vacation_end_date TEXT,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+
+                -- Copy all existing data
+                INSERT INTO profiles_new (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, vacation_start_date, vacation_end_date, updated_at)
+                SELECT 
+                    name, 
+                    mode, 
+                    target_temp, 
+                    greeting, 
+                    description,
+                    heater_status,
+                    ac_status,
+                    light_status,
+                    'Medium' as fan_speed,
+                    vacation_start_date,
+                    vacation_end_date,
+                    updated_at
+                FROM profiles;
+
+                -- Drop old table
+                DROP TABLE profiles;
+
+                -- Rename new table
+                ALTER TABLE profiles_new RENAME TO profiles;
+                "#
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
+    // Check if light_status column exists in hvac_state table
+    let light_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('hvac_state') WHERE name='light_status'",
+        [],
+        |r| r.get(0),
+    );
+    
+    // Check if current_profile column exists in hvac_state table
+    let profile_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('hvac_state') WHERE name='current_profile'",
+        [],
+        |r| r.get(0),
+    );
+    
+    let needs_light = light_column_check.map(|c| c == 0).unwrap_or(false);
+    let needs_profile = profile_column_check.map(|c| c == 0).unwrap_or(false);
+    
+    if needs_light || needs_profile {
+        // Recreate table with both light_status and current_profile columns (no ALTER TABLE)
+        conn.execute_batch(
+            r#"
+            -- Create new table with light_status and current_profile columns
+            CREATE TABLE hvac_state_new (
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                target_temperature REAL NOT NULL,
+                light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                current_profile TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
+
+            -- Copy existing data
+            INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, current_profile, updated_at)
+            SELECT 
+                id, 
+                mode, 
+                target_temperature,
+                COALESCE(light_status, 'OFF') as light_status,
+                NULL as current_profile,
+                updated_at
+            FROM hvac_state;
+
+            -- Drop old table
+            DROP TABLE hvac_state;
+
+            -- Rename new table
+            ALTER TABLE hvac_state_new RENAME TO hvac_state;
+            "#
+        )?;
+    }
+    
+    Ok(())
+}
+
+fn migrate_security_log_table(conn: &Connection) -> Result<()> {
+    // Check if we need to migrate by examining the table schema
+    let needs_migration = conn.query_row(
+        "SELECT sql FROM sqlite_master WHERE type='table' AND name='security_log'",
+        [],
+        |r| r.get::<_, String>(0),
+    ).optional()?;
+    
+    if let Some(schema) = needs_migration {
+        // Check if schema contains the new event types
+        if !schema.contains("ACCESS_GRANTED") || !schema.contains("TECH_ACCESS") {
+            // Recreate table with updated CHECK constraint
+            conn.execute_batch(
+                r#"
+                -- Create new table with updated CHECK constraint
+                CREATE TABLE security_log_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    actor_username TEXT NOT NULL,
+                    target_username TEXT NOT NULL,
+                    event_type TEXT NOT NULL CHECK(
+                        event_type IN (
+                            'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 
+                            'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
+                            'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 
+                            'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC',
+                            'ACCESS_GRANTED', 'TECH_ACCESS', 'ACCESS_EXPIRED'
+                        )
+                    ),
+                    description TEXT,
+                    timestamp TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+
+                -- Copy existing data
+                INSERT INTO security_log_new (id, actor_username, target_username, event_type, description, timestamp)
+                SELECT id, actor_username, target_username, event_type, description, timestamp
+                FROM security_log;
+
+                -- Drop old table
+                DROP TABLE security_log;
+
+                -- Rename new table
+                ALTER TABLE security_log_new RENAME TO security_log;
+
+                -- Recreate indexes
+                CREATE INDEX ix_security_log_actor ON security_log(actor_username);
+                CREATE INDEX ix_security_log_target ON security_log(target_username);
+                "#
+            )?;
+        }
+    }
+    
+    Ok(())
+}
+
+fn seed_default_profiles(conn: &Connection) -> Result<()> {
+    // Insert if missing
+    let defaults = ["Day", "Night", "Sleep", "Party", "Vacation", "Away"];
+    for name in defaults.iter() {
+        if let Some(def) = default_profile_row(name) {
+            conn.execute(
+                "INSERT OR IGNORE INTO profiles (name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                params![def.name, def.mode, def.target_temp, def.greeting, def.description, def.heater_status, def.ac_status, def.light_status, def.fan_speed],
+            )?;
+        }
+    }
+    Ok(())
+}
+
 pub fn get_profile_row(conn: &Connection, name: &str) -> Result<Option<ProfileRow>> {
     let mut stmt = conn.prepare(
         "SELECT name, mode, target_temp, greeting, description, heater_status, ac_status, light_status, fan_speed, vacation_start_date, vacation_end_date FROM profiles WHERE name = ?1",
@@ -1360,7 +1658,6 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
-
 
 
 
