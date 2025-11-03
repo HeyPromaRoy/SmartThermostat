@@ -215,7 +215,7 @@ impl HVACSystem {
                 println!("⚙️  Mode: Heating");
                 println!();
                 if let Some(profile) = &self.current_profile {
-                    println!("�  Profile: {}", profile);
+                    println!("�  Last applied Profile: {}", profile);
                     println!();
                 }
                 println!("�🔥  Heater: ON");
@@ -239,7 +239,7 @@ impl HVACSystem {
                 println!("⚙️  Mode: Heating");
                 println!();
                 if let Some(profile) = &self.current_profile {
-                    println!("�  Profile: {}", profile);
+                    println!("�  Last applied Profile: {}", profile);
                     println!();
                 }
                 println!("�🔥  Heater: ON");
@@ -286,7 +286,7 @@ impl HVACSystem {
                 println!("⚙️  Mode: Cooling");
                 println!();
                 if let Some(profile) = &self.current_profile {
-                    println!("📋  Profile: {}", profile);
+                    println!("📋  Last applied Profile: {}", profile);
                     println!();
                 }
                 println!("🔥  Heater: OFF");
@@ -307,7 +307,7 @@ impl HVACSystem {
                 println!("⚙️  Mode: Fan Only");
                 println!();
                 if let Some(profile) = &self.current_profile {
-                    println!("�  Profile: {}", profile);
+                    println!("�  Last applied Profile: {}", profile);
                     println!();
                 }
                 println!("�🔥  Heater: OFF");
@@ -334,7 +334,7 @@ impl HVACSystem {
                     println!("⚙️  Mode: Auto");
                     println!();
                     if let Some(profile) = &self.current_profile {
-                        println!("�  Profile: {}", profile);
+                        println!("�  Last applied Profile: {}", profile);
                         println!();
                     }
                     println!("�🔥  Heater: ON");
@@ -357,7 +357,7 @@ impl HVACSystem {
                     println!("⚙️  Mode: Auto");
                     println!();
                     if let Some(profile) = &self.current_profile {
-                        println!("�  Profile: {}", profile);
+                        println!("�  Last applied Profile: {}", profile);
                         println!();
                     }
                     println!("�🔥  Heater: OFF");
@@ -380,7 +380,7 @@ impl HVACSystem {
                     println!("⚙️  Mode: Auto");
                     println!();
                     if let Some(profile) = &self.current_profile {
-                        println!("📋  Profile: {}", profile);
+                        println!("📋  Last applied Profile: {}", profile);
                         println!();
                     }
                     println!("🔥  Heater: OFF");
@@ -402,7 +402,7 @@ impl HVACSystem {
                 println!("⚙️  Mode: Off");
                 println!();
                 if let Some(profile) = &self.current_profile {
-                    println!("�  Profile: {}", profile);
+                    println!("�  Last applied Profile: {}", profile);
                     println!();
                 }
                 println!("�🔥  Heater: OFF");

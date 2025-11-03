@@ -1,7 +1,7 @@
 use rusqlite::{Connection, params};
 use anyhow::Result;
 use std::io::{self, Write};
-
+use rpassword;
 
 use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather, diagnostic};
 use crate::energy;
@@ -103,21 +103,24 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                 print!("Password: ");
                 io::stdout().flush()?;
                 
-                if let Some(password) = prompt_input() {
-                    // Get stored password hash
-                    let stored_hash: String = conn.query_row(
-                        "SELECT hashed_password FROM users WHERE username = ?1",
-                        params![username],
-                        |row| row.get(0),
-                    )?;
-                    
-                    if !auth::verify_password(&password, &stored_hash)? {
-                        println!("❌ Incorrect password. Vacation mode change cancelled.");
+                let password = match rpassword::read_password() {
+                    Ok(pwd) => pwd,
+                    Err(_) => {
+                        println!("❌ Error reading password. Vacation mode change cancelled.");
                         wait_for_enter();
                         return Ok(());
                     }
-                } else {
-                    println!("❌ Password required. Vacation mode change cancelled.");
+                };
+                
+                // Get stored password hash
+                let stored_hash: String = conn.query_row(
+                    "SELECT hashed_password FROM users WHERE username = ?1",
+                    params![username],
+                    |row| row.get(0),
+                )?;
+                
+                if !auth::verify_password(&password, &stored_hash)? {
+                    println!("❌ Incorrect password. Vacation mode change cancelled.");
                     wait_for_enter();
                     return Ok(());
                 }
@@ -208,21 +211,24 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                         print!("Password: ");
                         io::stdout().flush()?;
                         
-                        if let Some(password) = prompt_input() {
-                            // Get stored password hash
-                            let stored_hash: String = conn.query_row(
-                                "SELECT hashed_password FROM users WHERE username = ?1",
-                                params![username],
-                                |row| row.get(0),
-                            )?;
-                            
-                            if !auth::verify_password(&password, &stored_hash)? {
-                                println!("❌ Incorrect password. Profile change cancelled.");
+                        let password = match rpassword::read_password() {
+                            Ok(pwd) => pwd,
+                            Err(_) => {
+                                println!("❌ Error reading password. Profile change cancelled.");
                                 wait_for_enter();
                                 return Ok(());
                             }
-                        } else {
-                            println!("❌ Password required. Profile change cancelled.");
+                        };
+                        
+                        // Get stored password hash
+                        let stored_hash: String = conn.query_row(
+                            "SELECT hashed_password FROM users WHERE username = ?1",
+                            params![username],
+                            |row| row.get(0),
+                        )?;
+                        
+                        if !auth::verify_password(&password, &stored_hash)? {
+                            println!("❌ Incorrect password. Profile change cancelled.");
                             wait_for_enter();
                             return Ok(());
                         }
