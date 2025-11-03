@@ -6,7 +6,7 @@ use chrono_tz::America::New_York;
 use rusqlite::{params, Connection, OptionalExtension};
 use rpassword::read_password;
 use rand::{TryRngCore, rngs::OsRng};
-use std::io::{self, Write};
+use std::{io::{self, Write}, path::Path};
 use zeroize::Zeroizing;
 
 use crate::auth;
@@ -25,8 +25,8 @@ fn to_eastern_time(utc_str: &str) -> Option<String> {
 }
 
 // Initialize all required database tables and indexes.
-pub fn init_system_db() -> Result<Connection> {
-    let conn = Connection::open("system.db").context("Failed to open system.db")?;
+pub fn init_system_db<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
+    let conn = Connection::open(db_path).context("Failed to open db")?;
         //Apply secure PRAGMA settings
         conn.execute_batch(
         r#"
@@ -234,8 +234,8 @@ pub fn init_system_db() -> Result<Connection> {
 }
 
 // Returns a reusable SQLite connection to the unified database.
-pub fn get_connection() -> Result<Connection> {
-    init_system_db()
+pub fn get_connection<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
+    init_system_db(db_path)
 }
 
 // Check if a username already exists.
@@ -1695,6 +1695,7 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
 
