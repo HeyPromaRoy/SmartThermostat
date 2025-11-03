@@ -394,7 +394,7 @@ pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role:
             params_vec.push(name);
         }
         "3" => {
-            print!("Enter event type (SUCCESS, FAILURE, LOCKOUT, etc.): ");
+            print!("Enter event type (SUCCESS_LOGIN, FAILURE_LOGIN, LOCKOUT, etc.): ");
             io::stdout().flush().ok();
             let mut event = String::new();
             io::stdin().read_line(&mut event)?;
@@ -474,6 +474,7 @@ pub fn view_security_log(conn: &Connection, _admin_username: &str, current_role:
     println!("{}", "-".repeat(130));
     Ok(())
 }
+
 
 
 

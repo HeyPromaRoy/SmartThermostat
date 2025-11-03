@@ -1353,6 +1353,10 @@ fn apply_custom_profile(
     hvac.set_target_temperature(conn, adjusted_temp);
     hvac.set_light_status(conn, &profile.light_status);
     
+    // Set current profile name and save to database
+    hvac.current_profile = Some(profile.name.clone());
+    hvac.save_state(conn);
+    
     // Display profile application
     let greet = profile.greeting.as_deref().unwrap_or("Custom profile activated");
     let now = Local::now();

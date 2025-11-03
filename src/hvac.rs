@@ -21,6 +21,7 @@ pub struct HVACSystem {
     pub mode: HVACMode,
     pub target_temperature: f32,
     pub light_status: String,
+    pub current_profile: Option<String>,
 }
 
 // Temperature limits constants
@@ -59,7 +60,7 @@ impl HVACSystem {
     pub fn new(conn: &Connection) -> Self {
         // Try to load from database, fallback to default if error
         match crate::db::get_hvac_state(conn) {
-            Ok((mode_str, temp, light)) => {
+            Ok((mode_str, temp, light, profile)) => {
                 let mode = match mode_str.as_str() {
                     "Heating" => HVACMode::Heating,
                     "Cooling" => HVACMode::Cooling,
@@ -71,6 +72,7 @@ impl HVACSystem {
                     mode,
                     target_temperature: temp,
                     light_status: light,
+                    current_profile: profile,
                 }
             }
             Err(_) => {
@@ -79,17 +81,12 @@ impl HVACSystem {
                     mode: HVACMode::Off,
                     target_temperature: 22.0,
                     light_status: "OFF".to_string(),
+                    current_profile: None,
                 }
             }
         }
     }
     
-    // Validates if temperature is within allowed range
-    #[allow(dead_code)]
-    pub fn is_valid_temperature(temp: f32) -> bool {
-        temp >= MIN_TEMPERATURE && temp <= MAX_TEMPERATURE
-    }
-
     pub fn set_mode(&mut self, conn: &Connection, mode: HVACMode) {
         self.mode = mode;
         
@@ -101,7 +98,7 @@ impl HVACSystem {
             HVACMode::FanOnly => "FanOnly",
             HVACMode::Auto => "Auto",
         };
-        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status);
+        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status, self.current_profile.as_deref());
         
         let _ = logger::log_event(
             conn,
@@ -123,7 +120,7 @@ impl HVACSystem {
             HVACMode::FanOnly => "FanOnly",
             HVACMode::Auto => "Auto",
         };
-        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status);
+        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status, self.current_profile.as_deref());
         
         let _ = logger::log_event(
             conn,
@@ -177,7 +174,18 @@ impl HVACSystem {
             HVACMode::FanOnly => "FanOnly",
             HVACMode::Auto => "Auto",
         };
-        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status);
+        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status, self.current_profile.as_deref());
+    }
+
+    pub fn save_state(&self, conn: &Connection) {
+        let mode_str = match self.mode {
+            HVACMode::Off => "Off",
+            HVACMode::Heating => "Heating",
+            HVACMode::Cooling => "Cooling",
+            HVACMode::FanOnly => "FanOnly",
+            HVACMode::Auto => "Auto",
+        };
+        let _ = crate::db::save_hvac_state(conn, mode_str, self.target_temperature, &self.light_status, self.current_profile.as_deref());
     }
 
     pub fn update(&self, conn: &Connection) {
@@ -206,13 +214,17 @@ impl HVACSystem {
                 println!();
                 println!("⚙️  Mode: Heating");
                 println!();
-                println!("🔥  Heater: ON");
+                if let Some(profile) = &self.current_profile {
+                    println!("�  Profile: {}", profile);
+                    println!();
+                }
+                println!("�🔥  Heater: ON");
                 println!();
                 println!("❄️  AC: OFF");
                 println!();
-                println!("�  Light: {}", self.light_status);
+                println!("💡  Light: {}", self.light_status);
                 println!();
-                println!("�📊  Status: Warming up your space!");
+                println!("📊  Status: Warming up your space!");
                 println!();
                 println!("🕒  Time: {}", time_str);
                 let _ = logger::log_event(conn, "system", None, "HVAC", Some("Heating activated"));
@@ -226,13 +238,17 @@ impl HVACSystem {
                 println!();
                 println!("⚙️  Mode: Heating");
                 println!();
-                println!("🔥  Heater: ON");
+                if let Some(profile) = &self.current_profile {
+                    println!("�  Profile: {}", profile);
+                    println!();
+                }
+                println!("�🔥  Heater: ON");
                 println!();
                 println!("❄️  AC: OFF");
                 println!();
-                println!("�  Light: {}", self.light_status);
+                println!("💡  Light: {}", self.light_status);
                 println!();
-                println!("�📊  Status: Temperature reached!");
+                println!("📊  Status: Temperature reached!");
                 println!();
                 println!("🕒  Time: {}", time_str);
             }
@@ -245,13 +261,17 @@ impl HVACSystem {
                 println!();
                 println!("⚙️  Mode: Cooling");
                 println!();
-                println!("🔥  Heater: OFF");
+                if let Some(profile) = &self.current_profile {
+                    println!("�  Profile: {}", profile);
+                    println!();
+                }
+                println!("�🔥  Heater: OFF");
                 println!();
                 println!("❄️  AC: ON");
                 println!();
-                println!("�  Light: {}", self.light_status);
+                println!("💡  Light: {}", self.light_status);
                 println!();
-                println!("�📊  Status: AC cooling down your space!");
+                println!("📊  Status: AC cooling down your space!");
                 println!();
                 println!("🕒  Time: {}", time_str);
                 let _ = logger::log_event(conn, "system", None, "HVAC", Some("Cooling activated"));
@@ -265,6 +285,10 @@ impl HVACSystem {
                 println!();
                 println!("⚙️  Mode: Cooling");
                 println!();
+                if let Some(profile) = &self.current_profile {
+                    println!("📋  Profile: {}", profile);
+                    println!();
+                }
                 println!("🔥  Heater: OFF");
                 println!();
                 println!("❄️  AC: ON");
@@ -282,13 +306,17 @@ impl HVACSystem {
                 println!();
                 println!("⚙️  Mode: Fan Only");
                 println!();
-                println!("🔥  Heater: OFF");
+                if let Some(profile) = &self.current_profile {
+                    println!("�  Profile: {}", profile);
+                    println!();
+                }
+                println!("�🔥  Heater: OFF");
                 println!();
                 println!("❄️  AC: OFF");
                 println!();
-                println!("�  Light: {}", self.light_status);
+                println!("💡  Light: {}", self.light_status);
                 println!();
-                println!("�💨  Fan: ON");
+                println!("💨  Fan: ON");
                 println!();
                 println!("📊  Status: Circulating fresh air!");
                 println!();
@@ -305,13 +333,17 @@ impl HVACSystem {
                     println!();
                     println!("⚙️  Mode: Auto");
                     println!();
-                    println!("🔥  Heater: ON");
+                    if let Some(profile) = &self.current_profile {
+                        println!("�  Profile: {}", profile);
+                        println!();
+                    }
+                    println!("�🔥  Heater: ON");
                     println!();
                     println!("❄️  AC: OFF");
                     println!();
-                    println!("�  Light: {}", self.light_status);
+                    println!("💡  Light: {}", self.light_status);
                     println!();
-                    println!("�📊  Status: Heating to reach target");
+                    println!("📊  Status: Heating to reach target");
                     println!();
                     println!("🕒  Time: {}", time_str);
                     let _ = logger::log_event(conn, "system", None, "HVAC", Some("Auto heating started"));
@@ -324,7 +356,11 @@ impl HVACSystem {
                     println!();
                     println!("⚙️  Mode: Auto");
                     println!();
-                    println!("🔥  Heater: OFF");
+                    if let Some(profile) = &self.current_profile {
+                        println!("�  Profile: {}", profile);
+                        println!();
+                    }
+                    println!("�🔥  Heater: OFF");
                     println!();
                     println!("❄️  AC: ON");
                     println!();
@@ -343,6 +379,10 @@ impl HVACSystem {
                     println!();
                     println!("⚙️  Mode: Auto");
                     println!();
+                    if let Some(profile) = &self.current_profile {
+                        println!("📋  Profile: {}", profile);
+                        println!();
+                    }
                     println!("🔥  Heater: OFF");
                     println!();
                     println!("❄️  AC: OFF");
@@ -361,13 +401,17 @@ impl HVACSystem {
                 println!();
                 println!("⚙️  Mode: Off");
                 println!();
-                println!("🔥  Heater: OFF");
+                if let Some(profile) = &self.current_profile {
+                    println!("�  Profile: {}", profile);
+                    println!();
+                }
+                println!("�🔥  Heater: OFF");
                 println!();
                 println!("❄️  AC: OFF");
                 println!();
-                println!("�  Light: {}", self.light_status);
+                println!("💡  Light: {}", self.light_status);
                 println!();
-                println!("�💨  Fan: OFF");
+                println!("💨  Fan: OFF");
                 println!();
                 println!("📊  Status: No climate control");
                 println!();

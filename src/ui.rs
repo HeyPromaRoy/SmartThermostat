@@ -271,31 +271,6 @@ pub fn hvac_control_ui(user_role: &str) {
     }
 }
 
-#[allow(dead_code)]
-pub fn hvac_status_ui(temp: f32, target: f32, mode: &str, status: &str) {
-    let bar_color = Color::Cyan;
-    let title_color = Color::BrightYellow;
-    let text_color = Color::White;
-    let value_color = Color::BrightGreen;
-
-    let menu_bar = "=".repeat(46);
-    let menu_spc = " ".repeat(17);
-    let spacing1 = " ".repeat(7);
-    let spacing2 = " ".repeat(8);
-
-    println!("{}{}", spacing1, menu_bar.color(bar_color));
-    println!("{}{}{}", spacing1, menu_spc, "HVAC STATUS".bold().color(title_color));
-    println!("{}{}", spacing1, menu_bar.color(bar_color));
-    
-    println!("{}{} {}", spacing2, "Current Temperature:".color(text_color), format!("{:.1}°C", temp).color(value_color));
-    println!("{}{} {}", spacing2, "Target Temperature:".color(text_color), format!("{:.1}°C", target).color(value_color));
-    println!("{}{} {}", spacing2, "Operation Mode:".color(text_color), mode.color(value_color));
-    println!("{}{} {}", spacing2, "Current Status:".color(text_color), status.color(value_color));
-
-    println!();
-    println!("{}{}", spacing2, "Press Enter to continue...".color(Color::Cyan));
-}
-
 pub fn profile_selection_ui(profiles: &[crate::db::ProfileRow]) {
     let bar_color = Color::BrightCyan;
     let title_color = Color::BrightYellow;

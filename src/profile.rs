@@ -30,18 +30,6 @@ impl HVACProfile {
             HVACProfile::Away => (HVACMode::Off, 25.0),
         }
     }
-
-    #[allow(dead_code)]
-    pub fn description(self) -> &'static str {
-        match self {
-            HVACProfile::Day => "Auto mode, comfort-oriented\n     21-23°C / 70-73°F heating | 24-26°C / 75-79°F cooling\n     Auto fan speed\n     Comfort prioritized\n     🔥 Heater: Auto | ❄️ AC: Auto",
-            HVACProfile::Night => "Auto or steady heating/cooling\n     20°C / 68°F heating | 25°C / 77°F cooling\n     Low fan speed\n     Moderate comfort\n     🔥 Heater: Auto | ❄️ AC: Auto",
-            HVACProfile::Sleep => "Heating preferred, quiet operation\n     18-20°C / 64-68°F heating | 26-28°C / 79-82°F cooling\n     Fan off/low speed\n     Energy saving mode\n     🔥 Heater: ON | ❄️ AC: OFF",
-            HVACProfile::Party => "Cooling with ventilation\n     22°C / 72°F heating | 23-24°C / 73-75°F cooling\n     Medium-high fan speed\n     Comfort prioritized\n     🔥 Heater: OFF | ❄️ AC: ON",
-            HVACProfile::Vacation => "HVAC system off - Extended absence\n     16-18°C / 61-64°F heating | 29-30°C / 84-86°F cooling\n     Fan off\n     Max energy saving\n     🔥 Heater: OFF | ❄️ AC: OFF",
-            HVACProfile::Away => "HVAC off/eco mode - Maintain 25°C / 77°F\n     25°C / 77°F target temperature\n     Fan off\n     Energy saving\n     🔥 Heater: OFF | ❄️ AC: OFF",
-        }
-    }
     
     pub fn greeting_message(self) -> &'static str {
         match self {
@@ -93,6 +81,10 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
         hvac.set_light_status(conn, &row.light_status);
     }
+    
+    // Set current profile name and save to database
+    hvac.current_profile = Some(name.clone());
+    hvac.save_state(conn);
     
     // Display profile application with decorative format
     let greet = greeting_opt.as_deref().unwrap_or(profile.greeting_message());

@@ -351,7 +351,7 @@ pub fn list_guests_of_homeowner(conn: &Connection, homeowner_username: &str) -> 
 }
 
 
-/// View all registered users (admin-only)
+// View all registered users (admin-only)
 pub fn view_all_users(conn: &Connection, current_role: &str) -> Result<()> {
     // Only allow admins to view this
     if current_role != "admin" {
@@ -902,9 +902,7 @@ pub struct ProfileRow {
     pub ac_status: String,
     pub light_status: String,
     pub fan_speed: String,
-    #[allow(dead_code)]
     pub vacation_start_date: Option<String>,
-    #[allow(dead_code)]
     pub vacation_end_date: Option<String>,
 }
 
@@ -1163,38 +1161,48 @@ fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
         |r| r.get(0),
     );
     
-    if let Ok(count) = light_column_check {
-        if count == 0 {
-            // Recreate table with light_status column (no ALTER TABLE)
-            conn.execute_batch(
-                r#"
-                -- Create new table with light_status column
-                CREATE TABLE hvac_state_new (
-                    id INTEGER PRIMARY KEY CHECK(id = 1),
-                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
-                    target_temperature REAL NOT NULL,
-                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
+    // Check if current_profile column exists in hvac_state table
+    let profile_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('hvac_state') WHERE name='current_profile'",
+        [],
+        |r| r.get(0),
+    );
+    
+    let needs_light = light_column_check.map(|c| c == 0).unwrap_or(false);
+    let needs_profile = profile_column_check.map(|c| c == 0).unwrap_or(false);
+    
+    if needs_light || needs_profile {
+        // Recreate table with both light_status and current_profile columns (no ALTER TABLE)
+        conn.execute_batch(
+            r#"
+            -- Create new table with light_status and current_profile columns
+            CREATE TABLE hvac_state_new (
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                target_temperature REAL NOT NULL,
+                light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                current_profile TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
 
-                -- Copy existing data
-                INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, updated_at)
-                SELECT 
-                    id, 
-                    mode, 
-                    target_temperature,
-                    'OFF' as light_status,
-                    updated_at
-                FROM hvac_state;
+            -- Copy existing data
+            INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, current_profile, updated_at)
+            SELECT 
+                id, 
+                mode, 
+                target_temperature,
+                COALESCE(light_status, 'OFF') as light_status,
+                NULL as current_profile,
+                updated_at
+            FROM hvac_state;
 
-                -- Drop old table
-                DROP TABLE hvac_state;
+            -- Drop old table
+            DROP TABLE hvac_state;
 
-                -- Rename new table
-                ALTER TABLE hvac_state_new RENAME TO hvac_state;
-                "#
-            )?;
-        }
+            -- Rename new table
+            ALTER TABLE hvac_state_new RENAME TO hvac_state;
+            "#
+        )?;
     }
     
     Ok(())
@@ -1317,23 +1325,6 @@ pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
     Ok(out)
 }
 
-#[allow(dead_code)]
-pub fn update_profile_row(
-    conn: &Connection,
-    name: &str,
-    mode: &str,
-    target_temp: f32,
-    greeting: Option<&str>,
-    description: Option<&str>,
-) -> Result<()> {
-    conn.execute(
-        "INSERT INTO profiles (name, mode, target_temp, greeting, description, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, datetime('now'))
-         ON CONFLICT(name) DO UPDATE SET mode = excluded.mode, target_temp = excluded.target_temp, greeting = excluded.greeting, description = excluded.description, updated_at = datetime('now')",
-        params![name, mode, target_temp, greeting, description],
-    )?;
-    Ok(())
-}
-
 pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
     if let Some(def) = default_profile_row(name) {
         conn.execute(
@@ -1347,8 +1338,7 @@ pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Set vacation dates for the Vacation profile
-#[allow(dead_code)]
+// Set vacation dates for the Vacation profile
 pub fn set_vacation_dates(conn: &Connection, start_date: &str, end_date: &str) -> Result<()> {
     conn.execute(
         "UPDATE profiles SET vacation_start_date = ?1, vacation_end_date = ?2, updated_at = datetime('now') WHERE name = 'Vacation'",
@@ -1357,8 +1347,7 @@ pub fn set_vacation_dates(conn: &Connection, start_date: &str, end_date: &str) -
     Ok(())
 }
 
-/// Clear vacation dates
-#[allow(dead_code)]
+// Clear vacation dates
 pub fn clear_vacation_dates(conn: &Connection) -> Result<()> {
     conn.execute(
         "UPDATE profiles SET vacation_start_date = NULL, vacation_end_date = NULL, updated_at = datetime('now') WHERE name = 'Vacation'",
@@ -1373,12 +1362,12 @@ pub fn clear_vacation_dates(conn: &Connection) -> Result<()> {
 
 const DEFAULT_PROFILES: [&str; 6] = ["Day", "Night", "Sleep", "Party", "Vacation", "Away"];
 
-/// Check if a profile name is a default/protected profile
+// Check if a profile name is a default/protected profile
 pub fn is_default_profile(name: &str) -> bool {
     DEFAULT_PROFILES.iter().any(|&p| p.eq_ignore_ascii_case(name))
 }
 
-/// Validate profile name (3-20 chars, letters/numbers/spaces only, no duplicates)
+// Validate profile name (3-20 chars, letters/numbers/spaces only, no duplicates)
 pub fn validate_profile_name(conn: &Connection, name: &str) -> Result<Option<String>> {
     let trimmed = name.trim();
     
@@ -1411,7 +1400,7 @@ pub fn validate_profile_name(conn: &Connection, name: &str) -> Result<Option<Str
     Ok(None) // No error
 }
 
-/// Create a new custom profile
+// Create a new custom profile
 pub fn create_profile(
     conn: &Connection,
     name: &str,
@@ -1439,7 +1428,7 @@ pub fn create_profile(
     Ok(())
 }
 
-/// Delete a custom profile (cannot delete default profiles)
+// Delete a custom profile (cannot delete default profiles)
 pub fn delete_profile(conn: &Connection, name: &str) -> Result<()> {
     // Check if it's a default profile
     if is_default_profile(name) {
@@ -1466,7 +1455,7 @@ pub fn delete_profile(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Update profile with full control over all parameters
+// Update profile with full control over all parameters
 pub fn update_profile_full(
     conn: &Connection,
     name: &str,
@@ -1493,7 +1482,7 @@ pub fn update_profile_full(
 //              HVAC ACTIVITY LOGGING
 // ======================================================
 
-/// Log when a user applies a profile
+// Log when a user applies a profile
 pub fn log_profile_applied(
     conn: &Connection,
     username: &str,
@@ -1511,35 +1500,7 @@ pub fn log_profile_applied(
     Ok(())
 }
 
-/// Log when a homeowner/admin edits a profile
-#[allow(dead_code)]
-pub fn log_profile_edited(
-    conn: &Connection,
-    username: &str,
-    user_role: &str,
-    profile_name: &str,
-    old_mode: Option<&str>,
-    new_mode: &str,
-    old_temp: Option<f32>,
-    new_temp: f32,
-) -> Result<()> {
-    let old_value = old_mode.map(|m| format!("{}|{:.1}", m, old_temp.unwrap_or(0.0)));
-    let new_value = format!("{}|{:.1}", new_mode, new_temp);
-    let description = format!("✏️ Profile edited: {} | ⚙️ Mode: {} → {} | 🌡️ Temp: {:.1}°C → {:.1}°C", 
-                             profile_name, 
-                             old_mode.unwrap_or("unknown"), 
-                             new_mode, 
-                             old_temp.unwrap_or(0.0), 
-                             new_temp);
-    conn.execute(
-        "INSERT INTO hvac_activity_log (username, user_role, action_type, profile_name, old_value, new_value, description) 
-         VALUES (?1, ?2, 'PROFILE_EDITED', ?3, ?4, ?5, ?6)",
-        params![username, user_role, profile_name, old_value, new_value, description],
-    )?;
-    Ok(())
-}
-
-/// Log when a profile is reset to defaults
+// Log when a profile is reset to defaults
 pub fn log_profile_reset(
     conn: &Connection,
     username: &str,
@@ -1555,7 +1516,7 @@ pub fn log_profile_reset(
     Ok(())
 }
 
-/// Log when temperature is changed directly (not via profile)
+// Log when temperature is changed directly (not via profile)
 pub fn log_temperature_changed(
     conn: &Connection,
     username: &str,
@@ -1572,7 +1533,7 @@ pub fn log_temperature_changed(
     Ok(())
 }
 
-/// Log when HVAC mode is changed directly (not via profile)
+// Log when HVAC mode is changed directly (not via profile)
 pub fn log_mode_changed(
     conn: &Connection,
     username: &str,
@@ -1589,8 +1550,7 @@ pub fn log_mode_changed(
     Ok(())
 }
 
-/// View HVAC activity logs (for admins/homeowners)
-#[allow(dead_code)]
+// View HVAC activity logs (for admins/homeowners)
 pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &str) -> Result<()> {
     // Only admins, homeowners, and technicians can view logs
     if user_role != "admin" && user_role != "homeowner" && user_role != "technician" {
@@ -1673,28 +1633,30 @@ pub fn insert_weather(conn: &mut Connection, data: &WeatherRecord) -> Result<()>
     Ok(())
 }
 
-/// Get current HVAC state from database
-pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String)> {
-    let mut stmt = conn.prepare("SELECT mode, target_temperature, light_status FROM hvac_state WHERE id = 1")?;
+// Get current HVAC state from database
+pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String, Option<String>)> {
+    let mut stmt = conn.prepare("SELECT mode, target_temperature, light_status, current_profile FROM hvac_state WHERE id = 1")?;
     let result = stmt.query_row([], |row| {
         Ok((
             row.get::<_, String>(0)?, 
             row.get::<_, f32>(1)?,
-            row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "OFF".to_string())
+            row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "OFF".to_string()),
+            row.get::<_, Option<String>>(3)?
         ))
     })?;
     Ok(result)
 }
 
-/// Save current HVAC state to database
-pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, light_status: &str) -> Result<()> {
+// Save current HVAC state to database
+pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, light_status: &str, current_profile: Option<&str>) -> Result<()> {
     conn.execute(
-        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, light_status = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-        params![mode, target_temperature, light_status],
+        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, light_status = ?3, current_profile = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        params![mode, target_temperature, light_status, current_profile],
     )?;
     Ok(())
 
 }
+
 
 
 
