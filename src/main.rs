@@ -54,7 +54,8 @@ fn main() -> Result<()> {
 
 fn run_app() -> Result<()> {
     // Initialize unified system database (users + logs + lockouts)
-    let mut conn = db::get_connection().expect("Failed to initialize system database.");
+    let db_path = "system.db";
+    let mut conn = db::get_connection(db_path).expect("Failed to initialize system database.");
 
     let _anon_token = db::update_session(&conn, None)?;
     // Show front page UI
