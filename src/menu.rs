@@ -818,6 +818,446 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
     Ok(())
 }
 
+// Helper function to create a new profile (for homeowners and technicians)
+fn create_new_profile_flow(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
+    use std::io::{self, Write};
+
+    println!("\n========== CREATE NEW PROFILE ==========");
+
+    // 1. Get profile name
+    print!("Enter profile name (3-20 characters, letters/numbers/spaces only): ");
+    io::stdout().flush()?;
+    let mut name = String::new();
+    io::stdin().read_line(&mut name)?;
+    let name = name.trim().to_string();
+
+    // Validate profile name
+    if let Some(error) = db::validate_profile_name(conn, &name)? {
+        println!("❌ Invalid profile name: {}", error);
+        return Ok(());
+    }
+
+    // 2. Get mode
+    println!("\nAvailable modes:");
+    println!("  1) Off");
+    println!("  2) Heating");
+    println!("  3) Cooling");
+    println!("  4) FanOnly");
+    println!("  5) Auto");
+    print!("Choose mode (1-5): ");
+    io::stdout().flush()?;
+    let mut mode_choice = String::new();
+    io::stdin().read_line(&mut mode_choice)?;
+    let mode = match mode_choice.trim() {
+        "1" => "Off",
+        "2" => "Heating",
+        "3" => "Cooling",
+        "4" => "FanOnly",
+        "5" => "Auto",
+        _ => {
+            println!("❌ Invalid choice");
+            return Ok(());
+        }
+    };
+
+    // 3. Get target temperature
+    print!("Enter target temperature (16-40°C): ");
+    io::stdout().flush()?;
+    let mut temp_str = String::new();
+    io::stdin().read_line(&mut temp_str)?;
+    let target_temp: f32 = match temp_str.trim().parse() {
+        Ok(t) if t >= 16.0 && t <= 40.0 => t,
+        _ => {
+            println!("❌ Invalid temperature. Must be between 16-40°C");
+            return Ok(());
+        }
+    };
+
+    // 4. Get heater status
+    println!("\nHeater status:");
+    println!("  1) On");
+    println!("  2) Off");
+    println!("  3) Auto");
+    print!("Choose heater status (1-3): ");
+    io::stdout().flush()?;
+    let mut heater_choice = String::new();
+    io::stdin().read_line(&mut heater_choice)?;
+    let heater_status = match heater_choice.trim() {
+        "1" => "On",
+        "2" => "Off",
+        "3" => "Auto",
+        _ => {
+            println!("❌ Invalid choice");
+            return Ok(());
+        }
+    };
+
+    // 5. Get AC status
+    println!("\nAC status:");
+    println!("  1) On");
+    println!("  2) Off");
+    println!("  3) Auto");
+    print!("Choose AC status (1-3): ");
+    io::stdout().flush()?;
+    let mut ac_choice = String::new();
+    io::stdin().read_line(&mut ac_choice)?;
+    let ac_status = match ac_choice.trim() {
+        "1" => "On",
+        "2" => "Off",
+        "3" => "Auto",
+        _ => {
+            println!("❌ Invalid choice");
+            return Ok(());
+        }
+    };
+
+    // 6. Get light status
+    println!("\nLight status:");
+    println!("  1) ON");
+    println!("  2) OFF");
+    print!("Choose light status (1-2): ");
+    io::stdout().flush()?;
+    let mut light_choice = String::new();
+    io::stdin().read_line(&mut light_choice)?;
+    let light_status = match light_choice.trim() {
+        "1" => "ON",
+        "2" => "OFF",
+        _ => {
+            println!("❌ Invalid choice");
+            return Ok(());
+        }
+    };
+
+    // 7. Get fan speed
+    println!("\nFan speed:");
+    println!("  1) Low");
+    println!("  2) Medium");
+    println!("  3) High");
+    print!("Choose fan speed (1-3): ");
+    io::stdout().flush()?;
+    let mut fan_choice = String::new();
+    io::stdin().read_line(&mut fan_choice)?;
+    let fan_speed = match fan_choice.trim() {
+        "1" => "Low",
+        "2" => "Medium",
+        "3" => "High",
+        _ => {
+            println!("❌ Invalid choice");
+            return Ok(());
+        }
+    };
+
+    // 8. Optional: greeting and description
+    print!("\nEnter greeting (optional, press Enter to skip): ");
+    io::stdout().flush()?;
+    let mut greeting = String::new();
+    io::stdin().read_line(&mut greeting)?;
+    let greeting = greeting.trim();
+
+    print!("Enter description (optional, press Enter to skip): ");
+    io::stdout().flush()?;
+    let mut description = String::new();
+    io::stdin().read_line(&mut description)?;
+    let description = description.trim();
+
+    // Create the profile
+    db::create_profile(
+        conn,
+        &name,
+        mode,
+        target_temp,
+        if greeting.is_empty() { None } else { Some(greeting) },
+        if description.is_empty() { None } else { Some(description) },
+        heater_status,
+        ac_status,
+        light_status,
+        fan_speed,
+    )?;
+
+    // Log the creation
+    let log_msg = format!("Profile '{}' created by {} ({})", name, username, user_role);
+    logger::log_event(conn, username, None, "HVAC", Some(&log_msg))?;
+
+    println!("\n✅ Profile '{}' created successfully!", name);
+    Ok(())
+}
+
+// Helper function to delete a profile
+fn delete_profile_flow(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
+    use std::io::{self, Write};
+
+    println!("\n========== DELETE PROFILE ==========");
+
+    // List all profiles with type indicator
+    let profiles = db::list_profile_rows(conn)?;
+    if profiles.is_empty() {
+        println!("No profiles found.");
+        return Ok(());
+    }
+
+    println!("\nAvailable Profiles:");
+    for (idx, profile) in profiles.iter().enumerate() {
+        let profile_type = if db::is_default_profile(&profile.name) {
+            "[Default]"
+        } else {
+            "[Custom]"
+        };
+        println!("  {}. {} {}", idx + 1, profile.name, profile_type);
+    }
+
+    println!("\n⚠️  Note: Default profiles cannot be deleted.");
+
+    // Get profile name to delete
+    print!("\nEnter profile name to delete (or press Enter to cancel): ");
+    io::stdout().flush()?;
+    let mut name = String::new();
+    io::stdin().read_line(&mut name)?;
+    let name = name.trim();
+
+    if name.is_empty() {
+        println!("❌ Delete cancelled.");
+        return Ok(());
+    }
+
+    // Check if it's a default profile
+    if db::is_default_profile(name) {
+        println!("❌ Cannot delete default profile '{}'", name);
+        return Ok(());
+    }
+
+    // Check if profile exists
+    if !profiles.iter().any(|p| p.name.eq_ignore_ascii_case(name)) {
+        println!("❌ Profile '{}' not found", name);
+        return Ok(());
+    }
+
+    // Confirm deletion
+    print!("⚠️  Are you sure you want to delete profile '{}'? (yes/no): ", name);
+    io::stdout().flush()?;
+    let mut confirm = String::new();
+    io::stdin().read_line(&mut confirm)?;
+    
+    if confirm.trim().eq_ignore_ascii_case("yes") {
+        db::delete_profile(conn, name)?;
+        
+        // Log the deletion
+        let log_msg = format!("Profile '{}' deleted by {} ({})", name, username, user_role);
+        logger::log_event(conn, username, None, "HVAC", Some(&log_msg))?;
+        
+        println!("✅ Profile '{}' deleted successfully!", name);
+    } else {
+        println!("❌ Delete cancelled.");
+    }
+
+    Ok(())
+}
+
+// Helper function to edit a profile with full control
+fn edit_profile_full_flow(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
+    use std::io::{self, Write};
+
+    println!("\n========== EDIT PROFILE ==========");
+
+    // List all profiles
+    let profiles = db::list_profile_rows(conn)?;
+    if profiles.is_empty() {
+        println!("No profiles found.");
+        return Ok(());
+    }
+
+    println!("\nAvailable Profiles:");
+    for (idx, profile) in profiles.iter().enumerate() {
+        let profile_type = if db::is_default_profile(&profile.name) {
+            "[Default]"
+        } else {
+            "[Custom]"
+        };
+        println!("  {}. {} {}", idx + 1, profile.name, profile_type);
+    }
+
+    // Get profile name to edit
+    print!("\nEnter profile name to edit (or press Enter to cancel): ");
+    io::stdout().flush()?;
+    let mut name = String::new();
+    io::stdin().read_line(&mut name)?;
+    let name = name.trim();
+
+    if name.is_empty() {
+        println!("❌ Edit cancelled.");
+        return Ok(());
+    }
+
+    // Load current profile
+    let current = match db::get_profile_row(conn, name)? {
+        Some(p) => p,
+        None => {
+            println!("❌ Profile '{}' not found", name);
+            return Ok(());
+        }
+    };
+
+    println!("\n--- Current Settings for '{}' ---", name);
+    println!("Mode: {}", current.mode);
+    println!("Target Temperature: {}°C", current.target_temp);
+    println!("Heater: {}", current.heater_status);
+    println!("AC: {}", current.ac_status);
+    println!("Light: {}", current.light_status);
+    println!("Fan Speed: {}", current.fan_speed);
+    println!("Greeting: {}", current.greeting.as_deref().unwrap_or("(none)"));
+    println!("Description: {}", current.description.as_deref().unwrap_or("(none)"));
+    println!("\n📝 Press Enter to keep current value, or enter new value:\n");
+
+    // 1. Edit mode
+    print!("Mode [Off/Heating/Cooling/FanOnly/Auto] (current: {}): ", current.mode);
+    io::stdout().flush()?;
+    let mut mode_input = String::new();
+    io::stdin().read_line(&mut mode_input)?;
+    let new_mode = if mode_input.trim().is_empty() {
+        current.mode
+    } else {
+        match mode_input.trim() {
+            "Off" | "Heating" | "Cooling" | "FanOnly" | "Auto" => mode_input.trim().to_string(),
+            _ => {
+                println!("❌ Invalid mode. Keeping current value.");
+                current.mode
+            }
+        }
+    };
+
+    // 2. Edit target temperature
+    print!("Target Temperature [16-40] (current: {}): ", current.target_temp);
+    io::stdout().flush()?;
+    let mut temp_input = String::new();
+    io::stdin().read_line(&mut temp_input)?;
+    let new_target_temp = if temp_input.trim().is_empty() {
+        current.target_temp
+    } else {
+        match temp_input.trim().parse::<f32>() {
+            Ok(t) if t >= 16.0 && t <= 40.0 => t,
+            _ => {
+                println!("❌ Invalid temperature. Keeping current value.");
+                current.target_temp
+            }
+        }
+    };
+
+    // 3. Edit heater status
+    print!("Heater [On/Off/Auto] (current: {}): ", current.heater_status);
+    io::stdout().flush()?;
+    let mut heater_input = String::new();
+    io::stdin().read_line(&mut heater_input)?;
+    let new_heater = if heater_input.trim().is_empty() {
+        current.heater_status
+    } else {
+        match heater_input.trim() {
+            "On" | "Off" | "Auto" => heater_input.trim().to_string(),
+            _ => {
+                println!("❌ Invalid heater status. Keeping current value.");
+                current.heater_status
+            }
+        }
+    };
+
+    // 4. Edit AC status
+    print!("AC [On/Off/Auto] (current: {}): ", current.ac_status);
+    io::stdout().flush()?;
+    let mut ac_input = String::new();
+    io::stdin().read_line(&mut ac_input)?;
+    let new_ac = if ac_input.trim().is_empty() {
+        current.ac_status
+    } else {
+        match ac_input.trim() {
+            "On" | "Off" | "Auto" => ac_input.trim().to_string(),
+            _ => {
+                println!("❌ Invalid AC status. Keeping current value.");
+                current.ac_status
+            }
+        }
+    };
+
+    // 5. Edit light status
+    print!("Light [ON/OFF] (current: {}): ", current.light_status);
+    io::stdout().flush()?;
+    let mut light_input = String::new();
+    io::stdin().read_line(&mut light_input)?;
+    let new_light = if light_input.trim().is_empty() {
+        current.light_status
+    } else {
+        match light_input.trim() {
+            "ON" | "OFF" => light_input.trim().to_string(),
+            _ => {
+                println!("❌ Invalid light status. Keeping current value.");
+                current.light_status
+            }
+        }
+    };
+
+    // 6. Edit fan speed
+    print!("Fan Speed [Low/Medium/High] (current: {}): ", current.fan_speed);
+    io::stdout().flush()?;
+    let mut fan_input = String::new();
+    io::stdin().read_line(&mut fan_input)?;
+    let new_fan_speed = if fan_input.trim().is_empty() {
+        current.fan_speed
+    } else {
+        match fan_input.trim() {
+            "Low" | "Medium" | "High" => fan_input.trim().to_string(),
+            _ => {
+                println!("❌ Invalid fan speed. Keeping current value.");
+                current.fan_speed
+            }
+        }
+    };
+
+    // 7. Edit greeting (optional)
+    print!("Greeting (current: {}): ", current.greeting.as_deref().unwrap_or("(none)"));
+    io::stdout().flush()?;
+    let mut greeting_input = String::new();
+    io::stdin().read_line(&mut greeting_input)?;
+    let new_greeting = if greeting_input.trim().is_empty() {
+        current.greeting
+    } else {
+        Some(greeting_input.trim().to_string())
+    };
+
+    // 8. Edit description (optional)
+    print!("Description (current: {}): ", current.description.as_deref().unwrap_or("(none)"));
+    io::stdout().flush()?;
+    let mut desc_input = String::new();
+    io::stdin().read_line(&mut desc_input)?;
+    let new_description = if desc_input.trim().is_empty() {
+        current.description
+    } else {
+        Some(desc_input.trim().to_string())
+    };
+
+    // Update the profile
+    db::update_profile_full(
+        conn,
+        name,
+        &new_mode,
+        new_target_temp,
+        new_greeting.as_deref(),
+        new_description.as_deref(),
+        &new_heater,
+        &new_ac,
+        &new_light,
+        &new_fan_speed,
+    )?;
+
+    // Log the edit
+    let log_msg = format!("Profile '{}' edited by {} ({})", name, username, user_role);
+    logger::log_event(conn, username, None, "HVAC", Some(&log_msg))?;
+
+    println!("\n✅ Profile '{}' updated successfully!", name);
+    Ok(())
+}
+
+
+
+
+
+
 
 
 
