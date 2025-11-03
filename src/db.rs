@@ -1317,6 +1317,7 @@ pub fn list_profile_rows(conn: &Connection) -> Result<Vec<ProfileRow>> {
     Ok(out)
 }
 
+#[allow(dead_code)]
 pub fn update_profile_row(
     conn: &Connection,
     name: &str,
@@ -1511,6 +1512,7 @@ pub fn log_profile_applied(
 }
 
 /// Log when a homeowner/admin edits a profile
+#[allow(dead_code)]
 pub fn log_profile_edited(
     conn: &Connection,
     username: &str,

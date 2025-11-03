@@ -291,7 +291,7 @@ pub fn hvac_status_ui(temp: f32, target: f32, mode: &str, status: &str) {
     println!("{}{}", spacing2, "Press Enter to continue...".color(Color::Cyan));
 }
 
-pub fn profile_selection_ui() {
+pub fn profile_selection_ui(profiles: &[crate::db::ProfileRow]) {
     let bar_color = Color::BrightCyan;
     let title_color = Color::BrightYellow;
     let text_color = Color::White;
@@ -305,16 +305,16 @@ pub fn profile_selection_ui() {
     println!("{}{}{}", spacing1, menu_spc, "CHOOSE HVAC PROFILE".bold().color(title_color));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
     
-    println!("{}{}", spacing2, "[1] Day    - Comfort mode".color(text_color));
-    println!("{}{}", spacing2, "[2] Night  - Moderate comfort".color(text_color));
-    println!("{}{}", spacing2, "[3] Sleep  - Energy saving".color(text_color));
-    println!("{}{}", spacing2, "[4] Party  - Cool & ventilated".color(text_color));
-    println!("{}{}", spacing2, "[5] Vacation - Minimal usage".color(text_color));
-    println!("{}{}", spacing2, "[6] Away   - Eco mode".color(text_color));
+    // Display all profiles dynamically
+    for (idx, profile) in profiles.iter().enumerate() {
+        let description = profile.description.as_deref().unwrap_or("Custom profile");
+        println!("{}{}", spacing2, format!("[{}] {} - {}", idx + 1, profile.name, description).color(text_color));
+    }
+    
     println!("{}{}", spacing2, "[0] Cancel".color(Color::Red));
 
     println!();
-    print!("{}","Select a profile [0-6]: ".bold().color(Color::Cyan));
+    print!("{}", format!("Select a profile [0-{}]: ", profiles.len()).bold().color(Color::Cyan));
 }
 
 

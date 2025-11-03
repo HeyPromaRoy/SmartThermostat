@@ -85,6 +85,7 @@ impl HVACSystem {
     }
     
     /// Validates if temperature is within allowed range
+    #[allow(dead_code)]
     pub fn is_valid_temperature(temp: f32) -> bool {
         temp >= MIN_TEMPERATURE && temp <= MAX_TEMPERATURE
     }

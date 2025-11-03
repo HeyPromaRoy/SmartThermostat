@@ -8,7 +8,7 @@ use crate::energy;
 use crate::function::{prompt_input, wait_for_enter};
 
 use crate::profile::{HVACProfile, apply_profile};
-use crate::hvac::HVACSystem;
+use crate::hvac::{HVACSystem, HVACMode};
 use chrono::Local;
 
 // ===============================================================
@@ -29,26 +29,58 @@ fn is_vacation_mode_active(conn: &Connection) -> Result<bool> {
 //                         PROFILE SELECTION MENU
 // ===============================================================
 fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
-    ui::profile_selection_ui();
+    // Load all profiles from database
+    let profiles = db::list_profile_rows(conn)?;
+    
+    if profiles.is_empty() {
+        println!("❌ No profiles available.");
+        wait_for_enter();
+        return Ok(());
+    }
+    
+    ui::profile_selection_ui(&profiles);
     
     match prompt_input() {
         Some(choice) => {
-            let profile = match choice.trim() {
-                "1" => HVACProfile::Day,
-                "2" => HVACProfile::Night,
-                "3" => HVACProfile::Sleep,
-                "4" => HVACProfile::Party,
-                "5" => HVACProfile::Vacation,
-                "6" => HVACProfile::Away,
-                "0" => {
-                    println!("Profile selection cancelled.");
-                    return Ok(());
-                }
+            if choice.trim() == "0" {
+                println!("Profile selection cancelled.");
+                return Ok(());
+            }
+            
+            // Parse the selection
+            let selection: usize = match choice.trim().parse() {
+                Ok(num) if num > 0 && num <= profiles.len() => num,
                 _ => {
                     println!("Invalid option.");
                     return Ok(());
                 }
             };
+            
+            // Get the selected profile
+            let selected_profile = &profiles[selection - 1];
+            let profile_name = &selected_profile.name;
+            
+            // Check if it's a default profile or custom
+            let profile_opt = match profile_name.as_str() {
+                "Day" => Some(HVACProfile::Day),
+                "Night" => Some(HVACProfile::Night),
+                "Sleep" => Some(HVACProfile::Sleep),
+                "Party" => Some(HVACProfile::Party),
+                "Vacation" => Some(HVACProfile::Vacation),
+                "Away" => Some(HVACProfile::Away),
+                _ => None, // Custom profile
+            };
+            
+            // For custom profiles, handle them separately
+            if profile_opt.is_none() {
+                // This is a custom profile - apply it directly from database
+                apply_custom_profile(conn, username, user_role, selected_profile)?;
+                println!("\n✓ Profile '{}' applied successfully!", profile_name);
+                wait_for_enter();
+                return Ok(());
+            }
+            
+            let profile = profile_opt.unwrap();
 
             // Special handling for Vacation profile
             if matches!(profile, HVACProfile::Vacation) {
@@ -1250,6 +1282,107 @@ fn edit_profile_full_flow(conn: &mut Connection, username: &str, user_role: &str
     logger::log_event(conn, username, None, "HVAC", Some(&log_msg))?;
 
     println!("\n✅ Profile '{}' updated successfully!", name);
+    Ok(())
+}
+
+// Helper function to apply a custom profile
+fn apply_custom_profile(
+    conn: &mut Connection,
+    username: &str,
+    user_role: &str,
+    profile: &db::ProfileRow,
+) -> Result<()> {
+    use crate::profile::celsius_to_fahrenheit;
+    use chrono::Local;
+    
+    let mut hvac = HVACSystem::new(conn);
+    
+    // Map mode string to HVACMode
+    let mode = match profile.mode.as_str() {
+        "Off" => HVACMode::Off,
+        "Heating" => HVACMode::Heating,
+        "Cooling" => HVACMode::Cooling,
+        "FanOnly" => HVACMode::FanOnly,
+        "Auto" => HVACMode::Auto,
+        _ => HVACMode::Auto,
+    };
+    
+    let temperature = profile.target_temp;
+    
+    // Enforce mode-specific temperature ranges
+    let (min_t, max_t) = mode.temperature_range();
+    let adjusted_temp = if !mode.is_valid_temperature_for_mode(temperature) {
+        let adjusted = if temperature < min_t { 
+            min_t 
+        } else if temperature > max_t { 
+            max_t 
+        } else { 
+            temperature 
+        };
+        println!(
+            "Note: Adjusted target temperature for {:?} mode to {:.1}°C (valid range {:.0}–{:.0}°C)",
+            mode, adjusted, min_t, max_t
+        );
+        adjusted
+    } else {
+        temperature
+    };
+    
+    // Apply the settings
+    hvac.set_mode(conn, mode);
+    hvac.set_target_temperature(conn, adjusted_temp);
+    hvac.set_light_status(conn, &profile.light_status);
+    
+    // Display profile application
+    let greet = profile.greeting.as_deref().unwrap_or("Custom profile activated");
+    let now = Local::now();
+    let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
+    let temp_f = celsius_to_fahrenheit(adjusted_temp);
+    
+    // Determine heater/AC display status
+    let heater_display = match mode {
+        HVACMode::Heating => "ON",
+        HVACMode::Auto if profile.heater_status == "ON" || profile.heater_status == "Auto" => "ON",
+        _ => "OFF",
+    };
+    
+    let ac_display = match mode {
+        HVACMode::Cooling => "ON",
+        HVACMode::Auto if profile.ac_status == "ON" || profile.ac_status == "Auto" => "ON",
+        _ => "OFF",
+    };
+    
+    println!("🌈✨=============================================✨🌈");
+    println!("🏡  HVAC Profile Applied");
+    println!();
+    println!("📋  Profile: {} (Custom)", profile.name);
+    println!();
+    println!("{}", greet);
+    println!();
+    println!("⚙️  Mode: {:?}", mode);
+    println!();
+    println!("🎯  Target Temperature: {:.1}°C / {:.1}°F", adjusted_temp, temp_f);
+    println!();
+    println!("📝  Description: Temperature: {:.1}°C / {:.1}°F", adjusted_temp, temp_f);
+    println!("    🔥 Heater: {} | ❄️ AC: {} | 💡 Light: {} | 🌀 Fan: {}", 
+             heater_display, ac_display, profile.light_status, profile.fan_speed);
+    if let Some(desc) = &profile.description {
+        println!("    {}", desc);
+    }
+    println!();
+    println!("🕒  Time: {}", time_str);
+    println!("🌈✨=============================================✨🌈");
+    
+    // Log the profile application
+    let log_msg = format!(
+        "Custom profile '{}' applied with mode {:?} and temp {:.1}°C",
+        profile.name, mode, adjusted_temp
+    );
+    logger::log_event(conn, username, None, "HVAC", Some(&log_msg))?;
+    
+    let mode_str = format!("{:?}", mode);
+    let _ = db::log_profile_applied(conn, username, user_role, &profile.name, &mode_str, adjusted_temp);
+    
     Ok(())
 }
 
