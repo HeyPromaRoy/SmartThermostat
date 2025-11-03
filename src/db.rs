@@ -203,6 +203,8 @@ pub fn init_system_db<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
             id INTEGER PRIMARY KEY CHECK(id = 1),
             mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
             target_temperature REAL NOT NULL,
+            light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+            current_profile TEXT,
             updated_at TEXT DEFAULT CURRENT_TIMESTAMP
         );
 
@@ -1656,6 +1658,7 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
 
