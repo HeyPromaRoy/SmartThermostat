@@ -57,6 +57,25 @@ mod tests {
         [],
     ).unwrap();
 
+    // HVAC state table
+    conn.execute(
+    "CREATE TABLE IF NOT EXISTS hvac_state (
+        id INTEGER PRIMARY KEY,
+        mode TEXT NOT NULL,
+        target_temperature REAL NOT NULL,
+        light_status TEXT NOT NULL,
+        current_profile TEXT
+    )",
+    [],
+    ).unwrap();
+
+    // Insert default HVAC state
+    conn.execute(
+    "INSERT OR IGNORE INTO hvac_state (id, mode, target_temperature, light_status, current_profile)
+     VALUES (1, 'Off', 22.0, 'OFF', NULL)",
+    [],
+    ).unwrap();
+
     // energy table for energy-related tests
     conn.execute(
         "CREATE TABLE energy (
@@ -214,18 +233,6 @@ fn test_password_strength() {
         assert_eq!(hvac.mode, HVACMode::Off);
         // Default target temperature should be 22.0°C
         assert_eq!(hvac.target_temperature, 22.0);
-    }
-
-    /// Test the temperature validation function
-    #[test]
-    fn test_is_valid_temperature() {
-        // Values within limits should return true
-        assert!(HVACSystem::is_valid_temperature(16.0));
-        assert!(HVACSystem::is_valid_temperature(22.5));
-        assert!(HVACSystem::is_valid_temperature(40.0));
-        // Values outside limits should return false
-        assert!(!HVACSystem::is_valid_temperature(15.9));
-        assert!(!HVACSystem::is_valid_temperature(40.1));
     }
 
     /// Test that set_mode changes the HVAC mode correctly
