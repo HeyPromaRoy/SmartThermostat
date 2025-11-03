@@ -1,51 +1,3 @@
-/******************************************************
-===============         db.rs           ===============
-*******************************************************/
-// This module defines all SQLite database setup and access functions for the smart thermostat system. 
-// This handles user management, session tracking, technician access, and event logging.
-
-// init_system_db: Initializes the system.db database where
-// we apply secure PRAGMA (special type of statement allows for interaction
-// with the internal state and configuration of the db engine) and creating
-// all necessary tables (users, logs, lockouts, technician_jobs, sessions, weather, profiles).
-
-// get_connection: returns a reusuable database connection and initializing db if required.
-
-// user_exists: checks whether a username exists within the db.
-
-// get_user_id_and_role: gets the users ID number and role (admin, tech, homeowner, guest).
-
-// insert_user: used for registration purposes which inserts a new user data, logging the event and 
-// commiting change atomically (either the operation succeeds or nothing changes) using transaction
-
-// show_own_profile: displays the user details such as ID #, role, creation time, last login in EDT
-
-// list_guests_of_homeowner: list the guest accounts under specific homeowner acct.
-
-// view_all_users: List all registered users (with admin access) showing their enable status, creation and login time.
-
-// manage_user_status: allows admin to enable or disable user accounts with logging and re-auth.
-
-// ======== Techinician Related ========
- // grant_technician_access: Homeowner grants technician temporary access to a homeowner's system for a specific
- // period of time (30-120 minutes) with validation of roles, and event logging
-
- //access_job: allow a technician to activate a job if it's still valid, marked as "TECH_ACCESS"
- // or expires if the access expires.
-
- //sweep_expire_grants: expires technician access grants where time has passed, logged in security logs
-
- // tech_has_perm: Determines whether a technician has permission to act on the target homeowner's acct.
-
- // list_active_grants: lists all active technician access grants 
-
-// ======== Session Mgmt ========
- // new_session_token: generates a random 32-byte session token, which returns the hashed form for storing it in DB
-
- // update_session: replace any previous session for the user with a new one, with an expiration date of 10 minutes, and return a new token
- 
- // end_session: deletes the user's active session used in auth::logout_user 
-
 use anyhow::{anyhow, Context, Result};
 use base64::{Engine, engine::general_purpose};
 use blake3;
@@ -119,6 +71,7 @@ pub fn init_system_db() -> Result<Connection> {
                 event_type IN (
                     'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
                     'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC'
+                    'ACCESS_GRANTED', 'ACCESS_EXPIRED', 'TECH_ACCESS'
                 )
             ),
             description TEXT,
@@ -1554,5 +1507,6 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
