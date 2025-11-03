@@ -343,7 +343,7 @@ fn password_is_strong(password: &str, username: &str) -> bool {
 
 // Build a secure Argon2id hasher with reasonable parameters
 // Argon2id is chosen for its hybrid resistance (safe against both GPU and side-channel attacks).
-/// We use a memory-hard setup that balances performance and security for modern CPUs.
+// We use a memory-hard setup that balances performance and security for modern CPUs.
 fn argon2_hasher() -> Argon2<'static> {
     /* Create Argon2 hashing parameters:
        - memory_cost: 65_536 KiB (≈64 MiB) → resists GPU cracking
@@ -573,3 +573,4 @@ pub fn logout_user(conn: &Connection) -> Result<()> {
 
     Ok(())
 }
+
