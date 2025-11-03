@@ -252,13 +252,18 @@ pub fn hvac_control_ui(user_role: &str) {
     
     // Different menu options based on user role
     if user_role == "homeowner" {
-        // Homeowners: No diagnostics option
+        // Homeowners: Choose Profile option
         println!("{}{}", spacing2, "[3] Choose Profile".color(text_color));
         println!("{}{}", spacing2, "[4] Return to Main Menu".color(text_color));
         println!();
         print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
+    } else if user_role == "guest" {
+        // Guests: No option 3 (already have Choose Profile in main menu)
+        println!("{}{}", spacing2, "[3] Return to Main Menu".color(text_color));
+        println!();
+        print!("{}","Select an option [1-3]: ".bold().color(Color::Cyan));
     } else {
-        // Guests/Technicians: Include diagnostics
+        // Technicians only: Include diagnostics
         println!("{}{}", spacing2, "[3] Run Diagnostics".color(text_color));
         println!("{}{}", spacing2, "[4] Return to Main Menu".color(text_color));
         println!();

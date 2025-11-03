@@ -49,6 +49,7 @@ fn main() -> Result<()> {
     // 3) After passing the check, run the system
     run_app()
 
+    
 }
 
 fn run_app() -> Result<()> {

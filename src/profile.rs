@@ -101,31 +101,48 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
     let scheduled = current_scheduled_profile();
     let temp_f = celsius_to_fahrenheit(temperature);
     
-    // Determine actual heater/AC status based on CURRENT mode and profile settings
+    // Get current temperature to determine actual runtime behavior
+    let current_temp = crate::senser::get_indoor_temperature().unwrap_or(22.0);
+    
+    // Determine actual heater/AC status based on CURRENT mode, temperature, and profile settings
     let (heater_display, ac_display, light_display) = if let Ok(Some(row)) = db::get_profile_row(conn, &name) {
-        // Check the profile's heater/AC settings from database
-        let profile_heater = &row.heater_status;
-        let profile_ac = &row.ac_status;
         let profile_light = row.light_status.clone();
         
-        // Determine actual status based on mode and profile settings
-        let heater_on = match mode {
-            HVACMode::Heating => true,  // Heating mode always has heater on
-            HVACMode::Auto => profile_heater == "ON" || profile_heater == "Auto",  // Auto mode uses profile setting
-            _ => false,  // Other modes have heater off
-        };
-        
-        let ac_on = match mode {
-            HVACMode::Cooling => true,  // Cooling mode always has AC on
-            HVACMode::Auto => profile_ac == "ON" || profile_ac == "Auto",  // Auto mode uses profile setting
-            _ => false,  // Other modes have AC off
+        // Determine actual runtime status based on mode and current temperature
+        let (heater_on, ac_on) = match mode {
+            HVACMode::Heating => (true, false),  // Heating mode: heater on, AC off
+            HVACMode::Cooling => (false, true),  // Cooling mode: heater off, AC on
+            HVACMode::Auto => {
+                // Auto mode: check temperature difference to determine what's actually running
+                if current_temp < temperature - 0.5 {
+                    (true, false)  // Need heating
+                } else if current_temp > temperature + 0.5 {
+                    (false, true)  // Need cooling
+                } else {
+                    (false, false) // Temperature is at target
+                }
+            },
+            HVACMode::FanOnly => (false, false), // Fan only: both off
+            HVACMode::Off => (false, false),     // Off mode: both off
         };
         
         (if heater_on { "ON" } else { "OFF" }, if ac_on { "ON" } else { "OFF" }, profile_light)
     } else {
         // Fallback based on mode only
-        let heater_on = mode == HVACMode::Heating;
-        let ac_on = mode == HVACMode::Cooling;
+        let (heater_on, ac_on) = match mode {
+            HVACMode::Heating => (true, false),
+            HVACMode::Cooling => (false, true),
+            HVACMode::Auto => {
+                if current_temp < temperature - 0.5 {
+                    (true, false)
+                } else if current_temp > temperature + 0.5 {
+                    (false, true)
+                } else {
+                    (false, false)
+                }
+            },
+            _ => (false, false),
+        };
         (if heater_on { "ON" } else { "OFF" }, if ac_on { "ON" } else { "OFF" }, "OFF".to_string())
     };
     

@@ -723,14 +723,17 @@ fn hvac_control_menu(conn: &mut Connection, username: &str, user_role: &str) -> 
                         profile_selection_menu(conn, username, user_role)?;
                         // Reload HVAC state from database after profile change
                         hvac = hvac::HVACSystem::new(conn);
+                    } else if user_role == "guest" {
+                        // Guests: Return to Main Menu (they have Choose Profile in main menu)
+                        break;
                     } else {
-                        // Guests/Technicians: Run Diagnostics
+                        // Technicians: Run Diagnostics
                         hvac.diagnostics(conn);
                         wait_for_enter();
                     }
                 }
                 "4" => {
-                    // Option 4 is "Return to Main Menu" for everyone
+                    // Option 4 is "Return to Main Menu" for homeowners and technicians
                     break;
                 }
                 _ => println!("Invalid option. Please try again."),
@@ -827,14 +830,31 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
         } else if let Ok(idx) = choice.parse::<usize>() {
             // quick apply selected profile view -> open editor-like flow
             if idx >= 1 && idx <= profiles.len() {
-                let name = profiles[idx-1].name.clone();
+                let selected_profile = &profiles[idx-1];
+                let name = selected_profile.name.clone();
                 println!("Selected {}. Choose action: [A] Apply now  [E] Edit  [Back: Enter]", name);
                 if let Some(act) = prompt_input() {
                     let t = act.trim().to_string();
                     if t.eq_ignore_ascii_case("a") {
-                        let mut hvac = HVACSystem::new(conn);
-                        let prof = match name.as_str() { "Day"=>HVACProfile::Day, "Night"=>HVACProfile::Night, "Sleep"=>HVACProfile::Sleep, "Party"=>HVACProfile::Party, "Vacation"=>HVACProfile::Vacation, _=>HVACProfile::Away };
-                        apply_profile(conn, &mut hvac, prof, admin_username, current_role);
+                        // Check if it's a default or custom profile
+                        let prof_opt = match name.as_str() {
+                            "Day" => Some(HVACProfile::Day),
+                            "Night" => Some(HVACProfile::Night),
+                            "Sleep" => Some(HVACProfile::Sleep),
+                            "Party" => Some(HVACProfile::Party),
+                            "Vacation" => Some(HVACProfile::Vacation),
+                            "Away" => Some(HVACProfile::Away),
+                            _ => None, // Custom profile
+                        };
+                        
+                        if let Some(prof) = prof_opt {
+                            // Apply default profile
+                            let mut hvac = HVACSystem::new(conn);
+                            apply_profile(conn, &mut hvac, prof, admin_username, current_role);
+                        } else {
+                            // Apply custom profile
+                            apply_custom_profile(conn, admin_username, current_role, selected_profile)?;
+                        }
                     } else if t.eq_ignore_ascii_case("e") {
                         // loop back into edit branch by simulating 'E'
                         // Simpler: prompt again with E
@@ -1339,17 +1359,25 @@ fn apply_custom_profile(
     let time_str = now.format("%b %d, %Y %I:%M %p %Z").to_string();
     let temp_f = celsius_to_fahrenheit(adjusted_temp);
     
-    // Determine heater/AC display status
-    let heater_display = match mode {
-        HVACMode::Heating => "ON",
-        HVACMode::Auto if profile.heater_status == "ON" || profile.heater_status == "Auto" => "ON",
-        _ => "OFF",
-    };
+    // Get current temperature to determine actual runtime behavior
+    let current_temp = senser::get_indoor_temperature().unwrap_or(22.0);
     
-    let ac_display = match mode {
-        HVACMode::Cooling => "ON",
-        HVACMode::Auto if profile.ac_status == "ON" || profile.ac_status == "Auto" => "ON",
-        _ => "OFF",
+    // Determine heater/AC display status based on actual runtime behavior
+    let (heater_display, ac_display) = match mode {
+        HVACMode::Heating => ("ON", "OFF"),
+        HVACMode::Cooling => ("OFF", "ON"),
+        HVACMode::Auto => {
+            // Auto mode: check temperature difference to determine what's actually running
+            if current_temp < adjusted_temp - 0.5 {
+                ("ON", "OFF")  // Need heating
+            } else if current_temp > adjusted_temp + 0.5 {
+                ("OFF", "ON")  // Need cooling
+            } else {
+                ("OFF", "OFF") // Temperature is at target
+            }
+        },
+        HVACMode::FanOnly => ("OFF", "OFF"),
+        HVACMode::Off => ("OFF", "OFF"),
     };
     
     println!("🌈✨=============================================✨🌈");
