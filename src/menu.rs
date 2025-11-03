@@ -1,7 +1,7 @@
 use rusqlite::{Connection, params};
 use anyhow::Result;
 use std::io::{self, Write};
-
+use rpassword;
 
 use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather, diagnostic};
 use crate::energy;
@@ -103,21 +103,24 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                 print!("Password: ");
                 io::stdout().flush()?;
                 
-                if let Some(password) = prompt_input() {
-                    // Get stored password hash
-                    let stored_hash: String = conn.query_row(
-                        "SELECT hashed_password FROM users WHERE username = ?1",
-                        params![username],
-                        |row| row.get(0),
-                    )?;
-                    
-                    if !auth::verify_password(&password, &stored_hash)? {
-                        println!("❌ Incorrect password. Vacation mode change cancelled.");
+                let password = match rpassword::read_password() {
+                    Ok(pwd) => pwd,
+                    Err(_) => {
+                        println!("❌ Error reading password. Vacation mode change cancelled.");
                         wait_for_enter();
                         return Ok(());
                     }
-                } else {
-                    println!("❌ Password required. Vacation mode change cancelled.");
+                };
+                
+                // Get stored password hash
+                let stored_hash: String = conn.query_row(
+                    "SELECT hashed_password FROM users WHERE username = ?1",
+                    params![username],
+                    |row| row.get(0),
+                )?;
+                
+                if !auth::verify_password(&password, &stored_hash)? {
+                    println!("❌ Incorrect password. Vacation mode change cancelled.");
                     wait_for_enter();
                     return Ok(());
                 }
@@ -208,21 +211,24 @@ fn profile_selection_menu(conn: &mut Connection, username: &str, user_role: &str
                         print!("Password: ");
                         io::stdout().flush()?;
                         
-                        if let Some(password) = prompt_input() {
-                            // Get stored password hash
-                            let stored_hash: String = conn.query_row(
-                                "SELECT hashed_password FROM users WHERE username = ?1",
-                                params![username],
-                                |row| row.get(0),
-                            )?;
-                            
-                            if !auth::verify_password(&password, &stored_hash)? {
-                                println!("❌ Incorrect password. Profile change cancelled.");
+                        let password = match rpassword::read_password() {
+                            Ok(pwd) => pwd,
+                            Err(_) => {
+                                println!("❌ Error reading password. Profile change cancelled.");
                                 wait_for_enter();
                                 return Ok(());
                             }
-                        } else {
-                            println!("❌ Password required. Profile change cancelled.");
+                        };
+                        
+                        // Get stored password hash
+                        let stored_hash: String = conn.query_row(
+                            "SELECT hashed_password FROM users WHERE username = ?1",
+                            params![username],
+                            |row| row.get(0),
+                        )?;
+                        
+                        if !auth::verify_password(&password, &stored_hash)? {
+                            println!("❌ Incorrect password. Profile change cancelled.");
                             wait_for_enter();
                             return Ok(());
                         }
@@ -828,33 +834,21 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
                 println!("{} (logged)", msg);
             }
         } else if let Ok(idx) = choice.parse::<usize>() {
-            // quick apply selected profile view -> open editor-like flow
+            // Profile selection - only Edit option available (no Apply from Profile Settings)
             if idx >= 1 && idx <= profiles.len() {
                 let selected_profile = &profiles[idx-1];
                 let name = selected_profile.name.clone();
-                println!("Selected {}. Choose action: [A] Apply now  [E] Edit  [Back: Enter]", name);
+                
+                // Profile Settings menu: Only Edit option (Apply must be done through HVAC Control menu)
+                println!("Selected {}. Choose action: [E] Edit  [Back: Enter]", name);
+                println!("💡 Note: To apply profiles, use the HVAC Control menu.");
+                
                 if let Some(act) = prompt_input() {
                     let t = act.trim().to_string();
                     if t.eq_ignore_ascii_case("a") {
-                        // Check if it's a default or custom profile
-                        let prof_opt = match name.as_str() {
-                            "Day" => Some(HVACProfile::Day),
-                            "Night" => Some(HVACProfile::Night),
-                            "Sleep" => Some(HVACProfile::Sleep),
-                            "Party" => Some(HVACProfile::Party),
-                            "Vacation" => Some(HVACProfile::Vacation),
-                            "Away" => Some(HVACProfile::Away),
-                            _ => None, // Custom profile
-                        };
-                        
-                        if let Some(prof) = prof_opt {
-                            // Apply default profile
-                            let mut hvac = HVACSystem::new(conn);
-                            apply_profile(conn, &mut hvac, prof, admin_username, current_role);
-                        } else {
-                            // Apply custom profile
-                            apply_custom_profile(conn, admin_username, current_role, selected_profile)?;
-                        }
+                        println!("❌ Profiles cannot be applied from Profile Settings menu.");
+                        println!("   Please use HVAC Control menu to apply profiles (with proper security checks).");
+                        wait_for_enter();
                     } else if t.eq_ignore_ascii_case("e") {
                         // loop back into edit branch by simulating 'E'
                         // Simpler: prompt again with E

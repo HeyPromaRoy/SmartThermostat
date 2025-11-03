@@ -160,7 +160,7 @@ pub fn init_system_db<P: AsRef<Path>>(db_path: P) -> Result<Connection> {
         );
 
         -- ===============================
-        -- PROFILES TABLE (ADMIN-EDITABLE)
+        -- PROFILES TABLE
         -- ===============================
         CREATE TABLE IF NOT EXISTS profiles (
             name TEXT PRIMARY KEY,
@@ -1656,6 +1656,7 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
 

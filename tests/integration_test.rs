@@ -7,9 +7,10 @@ use smart_thermostat::logger::*;
 use smart_thermostat::energy::*;
 use smart_thermostat::db::*;
 use smart_thermostat::technician::*;
-use anyhow::Result;
-use rusqlite::{Connection,params};
 
+use anyhow::Result;
+use rusqlite::{Connection,params, OptionalExtension};
+use std::{path::PathBuf, env, fs}; 
 
 
 
@@ -109,6 +110,57 @@ mod tests {
 }
 
 // ===================================================================== //
+//                           DB TESTS
+// ===================================================================== //
+#[test]
+fn test_db_tables() -> Result<()> {
+    // Create a temp file path in the system temp directory
+    let tmp_dir = env::temp_dir();
+    let mut tmp_file = PathBuf::from(tmp_dir);
+        tmp_file.push("temp.db");
+
+        // Initialize DB at that path
+        let conn = get_connection(&tmp_file)?;
+
+        // Query tables
+        let mut stmt = conn.prepare("SELECT name FROM sqlite_master WHERE type='table'")?;
+        let table_iter = stmt.query_map([], |row| row.get::<_, String>(0))?;
+
+        let mut tables = Vec::new();
+        for tbl in table_iter {
+            if let Ok(name) = tbl {
+                tables.push(name);
+            }
+        }
+
+        let expected: Vec<String> = vec![
+            "users", "security_log", "lockouts", "session_state",
+            "technician_jobs", "weather", "profiles",
+            "hvac_activity_log", "hvac_state",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+        for name in &expected {
+            assert!(
+                tables.contains(name),
+                "Expected table '{}' was not found in DB",
+                name
+            );
+        }
+
+    assert!(!tables.contains(&"fake_table".to_string()), "Unexpected fake table found in DB!");
+
+    // Remove the test database file
+    fs::remove_file(&tmp_file).ok();
+
+    Ok(())
+}
+
+
+    
+// ===================================================================== //
 //                           SENSOR TESTS
 // ===================================================================== //
 
@@ -149,70 +201,117 @@ fn test_fetch_weather() {
 // ===================================================================== //
 //                           AUTH TESTS
 // ===================================================================== //
-
-#[test]
-fn test_register_and_login() -> Result<()> {
-    // Create an in-memory SQLite database for testing
-    let  mut conn = Connection::open_in_memory()?;
-
-    // Initialize a simple users table
-    conn.execute(
-        "CREATE TABLE users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT NOT NULL UNIQUE,
-            hashed_password TEXT NOT NULL,
-            user_status TEXT NOT NULL,
-            is_active INTEGER DEFAULT 1,
-            creator TEXT,
-            homeowner_id INTEGER
-        )",
-        [],
-    )?;
-
-    conn.execute_batch(
-            "
-            CREATE TABLE IF NOT EXISTS users (username TEXT PRIMARY KEY, hashed_password TEXT, user_status TEXT, is_active INTEGER, owner_id TEXT);
-            CREATE TABLE IF NOT EXISTS lockouts (username TEXT PRIMARY KEY, locked_until TEXT, failed_attempts INTEGER);
-            CREATE TABLE IF NOT EXISTS energy (id INTEGER PRIMARY KEY, homeowner_username TEXT, timestamp TEXT, energy_kwh REAL);
-            ",
-        ).unwrap();
-
-    // Create a fake acting admin user directly in DB
-    let hashed = hash_password("Admin123!").unwrap();
-    conn.execute(
-        "INSERT INTO users (username, hashed_password, user_status, is_active)
-         VALUES (?1, ?2, ?3, 1)",
-        [&"admin", &hashed.as_str(), &"admin"],
-    )?;
-
-    // Use register_user function to add a new technician
-    let acting_user = Some(("admin", "admin"));
-    
-    // Since register_user interacts with CLI, we can't fully automate password input here
-    // We'll just check that the function signature compiles and can be called.
-    // A real test would mock stdin for read_password()
-    
-    // Ensure function can be called (integration test compilation check)
-    let _result = register_user(&mut conn, acting_user);
-
-    Ok(())
-}
-
 #[test]
 fn test_username_validation() {
-    assert!(username_is_valid("user_123"));
-    assert!(!username_is_valid("bad user"));
-    assert!(!username_is_valid("x")); // too short
-    assert!(!username_is_valid("this_is_way_too_long_for_a_username_1234567890"));
+        assert_eq!(username_is_valid("Alice_123"), true); //valid username
+        assert_eq!(username_is_valid("Bob!sCool"), false); // Contains special chars
+        assert_eq!(username_is_valid("B"), false); // Short username
+        assert_eq!(username_is_valid("VeryVeryVeryLongCoolAwesome_Username123ILikeCats"), false); //Very Long Username
 }
 
 #[test]
-fn test_password_strength() {
-    assert!(password_is_strong("StrongPass1!", "user"));
-    assert!(!password_is_strong("weak", "user"));        // too short
-    assert!(!password_is_strong("password123", "user")); // missing special char
-    assert!(!password_is_strong("User123!", "user"));    // contains username
+fn test_password_validation() {
+        assert_eq!(password_is_strong("Password123", "user"), false); // No special chars
+        assert_eq!(password_is_strong("ILoveCats", "user"), false); // Only letters
+        assert_eq!(password_is_strong("12341241", "user"), false); // Only numbers
+        assert_eq!(password_is_strong("User@123", "user"), false); // Contains username
+
+        assert_eq!(password_is_strong("Str0ngP@ssword456", "user"), true); // Valid with all conditions
+
 }
+
+#[test]
+fn test_role_validation() {
+        assert_eq!(role_is_valid("homeowner"), true);
+        assert_eq!(role_is_valid("notvalid"), false);
+}
+
+#[test]
+fn test_password_hash_verif() -> anyhow::Result<()> {
+        let password = "StrongP@ssword1";
+        let wrong_pw = "Password";
+        let hashed_pw = hash_password(password)?;
+        assert_eq!(verify_password(&password, &hashed_pw)?, true);
+        assert_eq!(verify_password(&wrong_pw, &hashed_pw)?, false);
+        Ok(())
+}
+    
+#[test]
+fn test_user_auth() -> Result<()> {
+    let tmp_dir = env::temp_dir(); //create temp db path
+    let mut tmp_file = PathBuf::from(tmp_dir);
+    tmp_file.push("auth.db");
+
+    if tmp_file.exists() { //Sanity Check
+        fs::remove_file(&tmp_file).ok();
+    }
+
+    let conn = get_connection(&tmp_file)?; // initialize db
+        
+    //manual registration
+    let username = "alice";
+    let password = "StrongP@ssword1";
+    let hashed_pw = hash_password(password)?;
+
+    conn.execute(       
+        "INSERT INTO users (username, hashed_password, user_status, is_active)
+         VALUES (?1, ?2, 'homeowner', 1)",
+        params![username, hashed_pw])?;
+
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM users WHERE username = ?1)", params![username], |r| r.get(0))?;
+            
+        assert_eq!(exists, true, "User should exist in DB after insertion");
+
+    if !exists { 
+            conn.execute(
+            "INSERT INTO users (username, hashed_password, user_status, is_active)
+            VALUES (?1, ?2, 'homeowner', 1)", params![username, hashed_pw])?;
+        }
+            //verify correct pwd works
+        let stored_hash: String = conn.query_row(
+            "SELECT hashed_password FROM users WHERE username = ?1", params![username], |r| r.get(0))?;
+
+
+        assert_eq!(verify_password(password, &stored_hash)?, true);
+
+        assert_eq!(verify_password("WrongPassword", &stored_hash)?, false);
+
+        // Login Simulation
+        let _session_token = update_session(&conn, Some(username))?;
+
+        let db_session: Option<String> = conn.query_row(
+        "SELECT username FROM session_state WHERE username = ?1", params![username], |r| r.get(0),).optional()?;
+        
+        assert!(db_session.is_some(), "Expected session_state entry for logged-in user");
+
+        { //in-memory session reflection
+        let mut active = ACTIVE_SESSION.lock()
+             .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
+             *active = Some(username.to_string());
+            
+            assert_eq!(active.as_deref(), Some(username), "ACTIVE_SESSION should match logged_in user");
+        }
+
+            logout_user(&conn)?;
+        // Check that in-memory session is cleared
+        {
+        let active = ACTIVE_SESSION.lock()
+        .map_err(|_| anyhow::anyhow!("Failed to acquire ACTIVE_SESSION lock"))?;
+        assert!(active.is_none(), "ACTIVE_SESSION should be cleared after logout");
+        }
+
+            // Check that session_state in DB is cleared
+        let session_exists: bool = conn.query_row(
+        "SELECT COUNT(*) FROM session_state WHERE username = ?1",
+        params![username], |r| r.get(0))?;
+
+        assert_eq!(session_exists, false, "session_state should be empty after logout");
+
+            fs::remove_file(&tmp_file).ok();
+
+            Ok(())
+    }
 
 // ===================================================================== //
 //                           HVAC TESTS
