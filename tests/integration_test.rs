@@ -5,8 +5,11 @@ use smart_thermostat::auth::*;
 use smart_thermostat::hvac::*;
 use smart_thermostat::logger::*;
 use smart_thermostat::energy::*;
+use smart_thermostat::db::*;
+use smart_thermostat::technician::*;
 use anyhow::Result;
 use rusqlite::{Connection,params};
+
 
 
 
@@ -40,7 +43,7 @@ mod tests {
         [],
     ).unwrap();
 
-    // ✅ users table with full columns needed by tests
+    //  users table with full columns needed by tests
     conn.execute(
         "CREATE TABLE users (
             username TEXT PRIMARY KEY COLLATE NOCASE,
@@ -54,7 +57,7 @@ mod tests {
         [],
     ).unwrap();
 
-    // ✅ energy table for energy-related tests
+    // energy table for energy-related tests
     conn.execute(
         "CREATE TABLE energy (
             id INTEGER PRIMARY KEY,
@@ -64,6 +67,24 @@ mod tests {
         )",
         [],
     ).unwrap();
+
+        // technician_jobs
+        conn.execute(
+            r#"
+            CREATE TABLE technician_jobs (
+                job_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                homeowner_username TEXT NOT NULL,
+                technician_username TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'ASSIGNED',
+                access_minutes INTEGER NOT NULL,
+                job_desc TEXT NOT NULL,
+                grant_start TEXT,
+                grant_expires TEXT,
+                updated_at TEXT
+            )
+            "#,
+            [],
+        ).unwrap();
 
     conn
 }
@@ -507,16 +528,132 @@ fn test_fake_verification_delay_bounds() {
         
         Ok(())
 
-
-
-
-
-
 }
 
+// ===================================================================== //
+//                      TECHNICIAN TESTS
+// ===================================================================== //
+
+//------ Some helper functions to run Technicia.rs test ------
+
+// Helper: log a user into the global session
+    
+
+    fn login_user(username: &str) {
+        let mut guard = ACTIVE_SESSION.lock().unwrap();
+        *guard = Some(username.to_owned());
+    }
+
+//  Helper: insert a user (homeowner or technician)
+    
+   fn insert_user(conn: &Connection, username: &str, status: &str, pw: &str) -> Result<()> {
+        let hash = hash_password(pw)?;
+        conn.execute(
+            "INSERT INTO users (username, hashed_password, user_status, is_active)
+             VALUES (?1, ?2, ?3, 1)",
+            params![username, hash.as_str(), status],
+        )?;
+        Ok(())
+    }
+
+    // Homeowner Request a Tecnician
+   #[test]
+    fn test_homeowner_request_tech_success() -> Result<()> {
+        let mut conn = test_db();
+        insert_user(&conn, "alice", "homeowner", "Home123!")?;
+        insert_user(&conn, "bob",   "technician", "Tech123!")?;
+
+        login_user("alice");
+
+        let job_id = grant_technician_access(
+            &mut conn,
+            "alice",
+            "bob",
+            60,
+            "Thermostat not cooling properly.",
+        )?;
+
+        let (home, tech, mins, desc, status): (String, String, i64, String, String) =
+            conn.query_row(
+                "SELECT homeowner_username, technician_username, access_minutes, job_desc, status
+                 FROM technician_jobs WHERE job_id = ?1",
+                params![job_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )?;
+
+        assert_eq!(home, "alice");
+        assert_eq!(tech, "bob");
+        assert_eq!(mins, 60);
+        assert_eq!(desc, "Thermostat not cooling properly.");
+        assert_eq!(status, "ACCESS_GRANTED");
+        Ok(())
+    }
+
+    //Listing Technician job
+
+    #[test]
+    fn test_tech_list_my_jobs() -> Result<()> {
+        let conn = test_db();
+        insert_user(&conn, "bob", "technician", "Tech123!")?;
+        insert_user(&conn, "alice", "homeowner", "Home123!")?;
+
+        conn.execute(
+            r#"
+            INSERT INTO technician_jobs
+                (homeowner_username, technician_username, status, access_minutes,
+                 job_desc, grant_start, grant_expires, updated_at)
+            VALUES
+                ('alice','bob','ASSIGNED',30,'desc1',datetime('now'),datetime('now','+60 minutes'),datetime('now')),
+                ('alice','bob','ACCESS_GRANTED',90,'desc2',datetime('now'),datetime('now','+120 minutes'),datetime('now'))
+            "#,
+            [],
+        )?;
+
+        login_user("bob");
+
+        tech_list_my_jobs(&conn)?;
+        Ok(())
+    }
+
+    // Accessing Granted Job
+    #[test]
+    fn test_tech_access_job_success() -> Result<()> {
+        let mut conn = test_db();
+        insert_user(&conn, "bob", "technician", "Tech123!")?;
+        insert_user(&conn, "alice", "homeowner", "Home123!")?;
+
+        let job_id: i64 = conn.query_row(
+            r#"
+            INSERT INTO technician_jobs
+                (homeowner_username, technician_username, status, access_minutes,
+                 job_desc, grant_start, grant_expires, updated_at)
+            VALUES
+                ('alice','bob','ACCESS_GRANTED',60,'Fix AC',
+                 datetime('now'),datetime('now','+30 minutes'),datetime('now'))
+            RETURNING job_id
+            "#,
+            [],
+            |r| r.get(0),
+        )?;
+
+        login_user("bob");
+
+        // Simulate correct password via `access_job` (same logic as tech_access_job)
+        let result = access_job(&mut conn, job_id, "bob");
+
+        assert!(result.is_ok(), "access_job failed: {:?}", result.err());
+        assert!(result.unwrap().is_some());
+
+        let status: String = conn.query_row(
+            "SELECT status FROM technician_jobs WHERE job_id = ?1",
+            params![job_id],
+            |r| r.get(0),
+        )?;
+        assert_eq!(status, "TECH_ACCESS");
+        Ok(())
+    }
 
 
-
-
+    
 }
 
