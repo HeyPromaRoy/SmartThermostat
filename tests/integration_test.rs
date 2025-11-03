@@ -119,6 +119,9 @@ fn test_db_tables() -> Result<()> {
     let mut tmp_file = PathBuf::from(tmp_dir);
         tmp_file.push("temp.db");
 
+         // Delete any leftover DB from previous failed runs
+        let _ = fs::remove_file(&tmp_file);
+
         // Initialize DB at that path
         let conn = get_connection(&tmp_file)?;
 
