@@ -351,7 +351,7 @@ pub fn list_guests_of_homeowner(conn: &Connection, homeowner_username: &str) -> 
 }
 
 
-/// View all registered users (admin-only)
+// View all registered users (admin-only)
 pub fn view_all_users(conn: &Connection, current_role: &str) -> Result<()> {
     // Only allow admins to view this
     if current_role != "admin" {
@@ -1347,7 +1347,7 @@ pub fn reset_profile_to_default(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Set vacation dates for the Vacation profile
+// Set vacation dates for the Vacation profile
 #[allow(dead_code)]
 pub fn set_vacation_dates(conn: &Connection, start_date: &str, end_date: &str) -> Result<()> {
     conn.execute(
@@ -1357,7 +1357,7 @@ pub fn set_vacation_dates(conn: &Connection, start_date: &str, end_date: &str) -
     Ok(())
 }
 
-/// Clear vacation dates
+// Clear vacation dates
 #[allow(dead_code)]
 pub fn clear_vacation_dates(conn: &Connection) -> Result<()> {
     conn.execute(
@@ -1373,12 +1373,12 @@ pub fn clear_vacation_dates(conn: &Connection) -> Result<()> {
 
 const DEFAULT_PROFILES: [&str; 6] = ["Day", "Night", "Sleep", "Party", "Vacation", "Away"];
 
-/// Check if a profile name is a default/protected profile
+// Check if a profile name is a default/protected profile
 pub fn is_default_profile(name: &str) -> bool {
     DEFAULT_PROFILES.iter().any(|&p| p.eq_ignore_ascii_case(name))
 }
 
-/// Validate profile name (3-20 chars, letters/numbers/spaces only, no duplicates)
+// Validate profile name (3-20 chars, letters/numbers/spaces only, no duplicates)
 pub fn validate_profile_name(conn: &Connection, name: &str) -> Result<Option<String>> {
     let trimmed = name.trim();
     
@@ -1411,7 +1411,7 @@ pub fn validate_profile_name(conn: &Connection, name: &str) -> Result<Option<Str
     Ok(None) // No error
 }
 
-/// Create a new custom profile
+// Create a new custom profile
 pub fn create_profile(
     conn: &Connection,
     name: &str,
@@ -1439,7 +1439,7 @@ pub fn create_profile(
     Ok(())
 }
 
-/// Delete a custom profile (cannot delete default profiles)
+// Delete a custom profile (cannot delete default profiles)
 pub fn delete_profile(conn: &Connection, name: &str) -> Result<()> {
     // Check if it's a default profile
     if is_default_profile(name) {
@@ -1466,7 +1466,7 @@ pub fn delete_profile(conn: &Connection, name: &str) -> Result<()> {
     Ok(())
 }
 
-/// Update profile with full control over all parameters
+// Update profile with full control over all parameters
 pub fn update_profile_full(
     conn: &Connection,
     name: &str,
@@ -1493,7 +1493,7 @@ pub fn update_profile_full(
 //              HVAC ACTIVITY LOGGING
 // ======================================================
 
-/// Log when a user applies a profile
+// Log when a user applies a profile
 pub fn log_profile_applied(
     conn: &Connection,
     username: &str,
@@ -1511,7 +1511,7 @@ pub fn log_profile_applied(
     Ok(())
 }
 
-/// Log when a homeowner/admin edits a profile
+// Log when a homeowner/admin edits a profile
 #[allow(dead_code)]
 pub fn log_profile_edited(
     conn: &Connection,
@@ -1539,7 +1539,7 @@ pub fn log_profile_edited(
     Ok(())
 }
 
-/// Log when a profile is reset to defaults
+// Log when a profile is reset to defaults
 pub fn log_profile_reset(
     conn: &Connection,
     username: &str,
@@ -1555,7 +1555,7 @@ pub fn log_profile_reset(
     Ok(())
 }
 
-/// Log when temperature is changed directly (not via profile)
+// Log when temperature is changed directly (not via profile)
 pub fn log_temperature_changed(
     conn: &Connection,
     username: &str,
@@ -1572,7 +1572,7 @@ pub fn log_temperature_changed(
     Ok(())
 }
 
-/// Log when HVAC mode is changed directly (not via profile)
+// Log when HVAC mode is changed directly (not via profile)
 pub fn log_mode_changed(
     conn: &Connection,
     username: &str,
@@ -1589,7 +1589,7 @@ pub fn log_mode_changed(
     Ok(())
 }
 
-/// View HVAC activity logs (for admins/homeowners)
+// View HVAC activity logs (for admins/homeowners)
 #[allow(dead_code)]
 pub fn view_hvac_activity_log(conn: &Connection, _username: &str, user_role: &str) -> Result<()> {
     // Only admins, homeowners, and technicians can view logs
@@ -1673,7 +1673,7 @@ pub fn insert_weather(conn: &mut Connection, data: &WeatherRecord) -> Result<()>
     Ok(())
 }
 
-/// Get current HVAC state from database
+// Get current HVAC state from database
 pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String)> {
     let mut stmt = conn.prepare("SELECT mode, target_temperature, light_status FROM hvac_state WHERE id = 1")?;
     let result = stmt.query_row([], |row| {
@@ -1686,7 +1686,7 @@ pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String)> {
     Ok(result)
 }
 
-/// Save current HVAC state to database
+// Save current HVAC state to database
 pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, light_status: &str) -> Result<()> {
     conn.execute(
         "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, light_status = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
@@ -1695,6 +1695,7 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
 
