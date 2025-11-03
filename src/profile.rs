@@ -4,7 +4,7 @@ use crate::logger;
 use crate::db;
 use chrono::{Local, Timelike};
 
-/// Convert Celsius to Fahrenheit
+// Convert Celsius to Fahrenheit
 pub fn celsius_to_fahrenheit(celsius: f32) -> f32 {
     (celsius * 9.0 / 5.0) + 32.0
 }
