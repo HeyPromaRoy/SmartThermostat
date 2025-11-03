@@ -14,7 +14,7 @@ use chrono::Local;
 // ===============================================================
 //                    VACATION MODE CHECK
 // ===============================================================
-/// Check if vacation mode is currently active
+// Check if vacation mode is currently active
 fn is_vacation_mode_active(conn: &Connection) -> Result<bool> {
     if let Ok(Some(vacation_profile)) = db::get_profile_row(conn, "Vacation") {
         // Vacation mode is active if both start and end dates are set
