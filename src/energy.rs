@@ -17,7 +17,7 @@ pub struct EnergyUsage {
 pub struct EnergyTracker;
 
 impl EnergyTracker {
-    /// Generate mock energy data for the past N days (DST-safe)
+    // Generate mock energy data for the past N days (DST-safe)
     pub fn generate_mock_data(days: i64, _homeowner_username: &str) -> Vec<EnergyUsage> {
         let mut rng = rand::rng();
         let mut data = Vec::new();
@@ -87,7 +87,7 @@ impl EnergyTracker {
         data
     }
 
-    /// Aggregate daily energy usage
+    // Aggregate daily energy usage
     pub fn calculate_daily_usage(data: &[EnergyUsage]) -> HashMap<String, f64> {
         let mut daily_usage: HashMap<String, f64> = HashMap::new();
 
@@ -104,7 +104,7 @@ impl EnergyTracker {
         daily_usage
     }
 
-    /// Aggregate energy usage by mode
+    // Aggregate energy usage by mode
     pub fn calculate_mode_usage(data: &[EnergyUsage]) -> HashMap<String, f64> {
         let mut mode_usage: HashMap<String, f64> = HashMap::new();
 
@@ -115,7 +115,7 @@ impl EnergyTracker {
         mode_usage
     }
 
-    /// Compute an approximate efficiency rating
+    // Compute an approximate efficiency rating
     pub fn calculate_efficiency_rating(data: &[EnergyUsage]) -> String {
         if data.is_empty() {
             return "No Data".to_string();
@@ -134,7 +134,7 @@ impl EnergyTracker {
         .to_string()
     }
 
-    /// Print formatted energy usage report
+    // Print formatted energy usage report
     pub fn display_energy_report(data: &[EnergyUsage]) {
         if data.is_empty() {
             println!("No energy usage data available.");
@@ -190,7 +190,7 @@ impl EnergyTracker {
         println!("=============================================");
     }
 
-    /// Save energy data into SQLite database
+    // Save energy data into SQLite database
     pub fn store_energy_data(conn: &Connection, data: &[EnergyUsage], username: &str) -> Result<()> {
         conn.execute(
             "CREATE TABLE IF NOT EXISTS energy_usage (
@@ -224,7 +224,7 @@ impl EnergyTracker {
         Ok(())
     }
 
-    /// Load historical data from the database (UTC parsing)
+    // Load historical data from the database (UTC parsing)
     pub fn load_energy_data(conn: &Connection, username: &str, days: i64) -> Result<Vec<EnergyUsage>> {
         let cutoff = (Utc::now() - Duration::days(days)).to_rfc3339();
 
@@ -264,7 +264,7 @@ impl EnergyTracker {
 }
 
 
-/// Main function to view energy usage (called from menu)
+// Main function to view energy usage (called from menu)
 pub fn view_energy_usage(conn: &Connection, username: &str) -> Result<()> {
     println!("\n Generating energy usage report...");
     
@@ -288,7 +288,7 @@ pub fn view_energy_usage(conn: &Connection, username: &str) -> Result<()> {
     Ok(())
 }
 
-/// Function to compare energy usage with previous period
+// Function to compare energy usage with previous period
 pub fn compare_energy_usage(conn: &Connection, username: &str) -> Result<()> {
     let current_data = match EnergyTracker::load_energy_data(conn, username, 30) {
         Ok(data) if !data.is_empty() => data,
