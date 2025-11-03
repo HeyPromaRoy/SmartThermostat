@@ -3,7 +3,7 @@ use chrono::Local;
 use crate::logger;
 use crate::senser;
 
-/// Convert Celsius to Fahrenheit
+// Convert Celsius to Fahrenheit
 fn celsius_to_fahrenheit(celsius: f32) -> f32 {
     (celsius * 9.0 / 5.0) + 32.0
 }
@@ -37,7 +37,7 @@ pub const AUTO_MIN: f32 = 18.0;
 pub const AUTO_MAX: f32 = 28.0;
 
 impl HVACMode {
-    /// Get the temperature range for a specific mode
+    // Get the temperature range for a specific mode
     pub fn temperature_range(&self) -> (f32, f32) {
         match self {
             HVACMode::Heating => (HEATING_MIN, HEATING_MAX),
@@ -47,7 +47,7 @@ impl HVACMode {
         }
     }
 
-    /// Check if temperature is valid for this mode
+    // Check if temperature is valid for this mode
     pub fn is_valid_temperature_for_mode(&self, temp: f32) -> bool {
         let (min, max) = self.temperature_range();
         temp >= min && temp <= max
@@ -55,7 +55,7 @@ impl HVACMode {
 }
 
 impl HVACSystem {
-    /// Create new HVAC system, loading state from database
+    // Create new HVAC system, loading state from database
     pub fn new(conn: &Connection) -> Self {
         // Try to load from database, fallback to default if error
         match crate::db::get_hvac_state(conn) {
@@ -84,7 +84,7 @@ impl HVACSystem {
         }
     }
     
-    /// Validates if temperature is within allowed range
+    // Validates if temperature is within allowed range
     #[allow(dead_code)]
     pub fn is_valid_temperature(temp: f32) -> bool {
         temp >= MIN_TEMPERATURE && temp <= MAX_TEMPERATURE
