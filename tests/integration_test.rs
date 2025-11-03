@@ -7,9 +7,10 @@ use smart_thermostat::logger::*;
 use smart_thermostat::energy::*;
 use smart_thermostat::db::*;
 use smart_thermostat::technician::*;
-use anyhow::Result;
-use rusqlite::{Connection,params};
 
+use anyhow::Result;
+use rusqlite::{Connection,params, OptionalExtension};
+use std::{path::PathBuf, env, fs}; 
 
 
 
