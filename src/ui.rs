@@ -210,7 +210,7 @@ pub fn about_ui() {
     let label_color = Color::BrightCyan;
     let text_color = Color::White;
 
-    let bar = "=".repeat(56);
+    let bar = "=".repeat(64);
     let pad = " ".repeat(7);
 
     println!("\n{}{}", pad, bar.color(border_color));
@@ -225,9 +225,12 @@ pub fn about_ui() {
     println!("{}{}{}", pad, " ".repeat(14), "Proma Roy, Md Ariful Islam Fahim".color(text_color));
     println!("{}{} {}", pad, "     Version:".color(label_color).bold(), "1.0.0".color(text_color));
     println!("{}{}", pad, " Description:".color(label_color).bold());
-    println!("{}{}", pad, "   A smart home control system that manages users,".color(text_color));
-    println!("{}{}", pad, "   guests, and integrates real-time weather updates".color(text_color));
-    println!("{}{}", pad, "   using data from the NOAA API.".color(text_color));
+    println!("{}{}", pad, "   A secure and user-friendly smart thermostat system,".color(text_color));
+    println!("{}{}", pad, "   enabling homeowners, guests, and technicians to monitor".color(text_color));
+    println!("{}{}", pad, "   and control indoor environments, manage user access, and".color(text_color));
+    println!("{}{}", pad, "   configure programmable HVAC prrofiles. The system integrates".color(text_color));
+    println!("{}{}", pad, "   real-time weather data via the NOAA API and supports energy".color(text_color));
+    println!("{}{}", pad, "   usage and tracking and scheduling for climate control.".color(text_color));
 
     println!("{}{}", pad, bar.color(border_color));
     println!();
@@ -296,6 +299,7 @@ pub fn profile_selection_ui(profiles: &[crate::db::ProfileRow]) {
     println!();
     print!("{}", format!("Select a profile [0-{}]: ", profiles.len()).bold().color(Color::Cyan));
 }
+
 
 
 
