@@ -313,7 +313,7 @@ pub fn main_menu(conn: &mut Connection, username: &str, role: &str) -> Result<()
 //                         HOMEOWNER MENU
 // ===============================================================
 fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
-    let _homeowner_id = match db::get_user_id_and_role(conn, username)? {
+    match db::get_user_id_and_role(conn, username)? {
     Some((id, role)) if role == "homeowner" => id,
     _ => {
         println!("Access denied: only homeowners can manage guests.");
@@ -326,51 +326,36 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                 db::show_own_profile(conn, username)?;
                 wait_for_enter();
             },
-            "2" => {
-                println!("Registering a guest account...");
-                // homeowners can only create guests (enforced inside register_user)
-                auth::register_user(conn, Some((username, role)))?;
-            }
-            "3" => {db::list_guests_of_homeowner(conn, username)?;}
-            "4" => {
-                guest::manage_guests_menu(conn, username, role, username)?;},
-            "5" => {
+            "2" => {guest::manage_guests_menu(conn, username, role, username)?;}
+            "3" => {
                 println!("🌡 Checking indoor temperature...");
                 if let Err(e) = senser::run_dashboard_inline(senser::Thresholds::default()) {
                     eprintln!("dashboard error: {e}");
                 }
                 wait_for_enter();
             },
-            "6" => {
-                hvac_control_menu(conn, username, role)?;
-            },
-            "7" => {
+
+            "4" => {
                 println!("Retrieving outdoor weather status...");
                 if let Err(e) = weather::get_current_weather(conn) {
                     eprintln!("❌ Error: {:?}", e);
                 }
                 wait_for_enter();
             },
+            "5" => {hvac_control_menu(conn, username, role)?;},
+            "6" => {show_system_status(conn, username, role)?;},
+            "7" => {manage_profiles_menu(conn, username, role)?;},
             "8" => {
-                show_system_status(conn, username, role)?;
-            },
-            "9" => {
-                manage_profiles_menu(conn, username, role)?;
-            },
-
-            "A" => {
                 if let Err(e) = energy::view_energy_usage(conn, username) {
                         println!("Error generating energy report: {}", e);
                     }
                     wait_for_enter();
-            }
-
-            "C" => {
+            },
+            "9" => { 
                 technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
-            }
-
-            "D" => {
+            },
+            "A" => {
                 println!("Your active technician access grants:");
                 db::list_active_grants(conn, username)?;
                 wait_for_enter();
@@ -469,7 +454,7 @@ fn admin_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool>
 // ===============================================================
 fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<bool> {
     
-    let _technician_id = match db::get_user_id_and_role(conn, username)? {
+ match db::get_user_id_and_role(conn, username)? {
         Some((id, role)) if role == "technician" => id,
         _ => {
             println!("Access denied: invalid technician account.");
@@ -504,7 +489,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             } else {
             match db::get_user_id_and_role(conn, homeowner_username)? {
                 Some((_homeowner_id, h_role)) if h_role == "homeowner" => {
-                    // Call manage_guests_menu with corrected parameters
+                    // Pass homeowner_id (not technician_id) and the homeowner's username
                     guest::manage_guests_menu(conn,
                         username,            // acting technician username
                         role,                // "technician"
@@ -827,361 +812,6 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
-
-// ===============================================================
-//                  HELPER: CREATE NEW PROFILE
-// ===============================================================
-fn create_new_profile_flow(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
-    println!("\n🆕 CREATE NEW PROFILE");
-    println!("══════════════════════════════════════════════════");
-    
-    // Profile name
-    print!("Profile name (3-20 chars, letters/numbers/spaces): ");
-    io::stdout().flush().ok();
-    let name = match prompt_input() {
-        Some(s) => s.trim().to_string(),
-        None => { println!("❌ Name required"); return Ok(()); }
-    };
-    
-    // Validate name
-    if let Some(error) = db::validate_profile_name(conn, &name)? {
-        println!("❌ {}", error);
-        wait_for_enter();
-        return Ok(());
-    }
-    
-    // Mode selection
-    println!("\n📌 Select HVAC Mode:");
-    println!("[1] Off  [2] Heating  [3] Cooling  [4] FanOnly  [5] Auto");
-    let mode_str = match prompt_input() {
-        Some(s) => match s.trim() {
-            "1" => "Off",
-            "2" => "Heating",
-            "3" => "Cooling",
-            "4" => "FanOnly",
-            "5" => "Auto",
-            _ => { println!("❌ Invalid mode"); return Ok(()); }
-        },
-        None => { println!("❌ Mode required"); return Ok(()); }
-    };
-    
-    // Temperature
-    print!("\n🌡️  Target temperature (16-40 °C): ");
-    io::stdout().flush().ok();
-    let temp = match prompt_input().and_then(|s| s.trim().parse::<f32>().ok()) {
-        Some(t) if HVACSystem::is_valid_temperature(t) => t,
-        _ => { println!("❌ Invalid temperature (must be 16-40°C)"); return Ok(()); }
-    };
-    
-    // Heater status
-    println!("\n🔥 Heater: [1] On  [2] Off  [3] Auto");
-    let heater = match prompt_input() {
-        Some(s) => match s.trim() {
-            "1" => "On",
-            "2" => "Off",
-            "3" => "Auto",
-            _ => "Auto"
-        },
-        None => "Auto"
-    };
-    
-    // AC status
-    println!("\n❄️  Air Conditioner: [1] On  [2] Off  [3] Auto");
-    let ac = match prompt_input() {
-        Some(s) => match s.trim() {
-            "1" => "On",
-            "2" => "Off",
-            "3" => "Auto",
-            _ => "Auto"
-        },
-        None => "Auto"
-    };
-    
-    // Light status
-    println!("\n💡 Light: [1] ON  [2] OFF");
-    let light = match prompt_input() {
-        Some(s) => match s.trim() {
-            "1" => "ON",
-            "2" => "OFF",
-            _ => "OFF"
-        },
-        None => "OFF"
-    };
-    
-    // Fan speed
-    println!("\n💨 Fan Speed: [1] Low  [2] Medium  [3] High");
-    let fan = match prompt_input() {
-        Some(s) => match s.trim() {
-            "1" => "Low",
-            "2" => "Medium",
-            "3" => "High",
-            _ => "Medium"
-        },
-        None => "Medium"
-    };
-    
-    // Optional greeting
-    print!("\n💬 Custom greeting (optional, Enter to skip): ");
-    io::stdout().flush().ok();
-    let greeting = prompt_input().and_then(|s| {
-        let t = s.trim().to_string();
-        if t.is_empty() { None } else { Some(t) }
-    });
-    
-    // Optional description
-    print!("📝 Description (optional, Enter to skip): ");
-    io::stdout().flush().ok();
-    let description = prompt_input().and_then(|s| {
-        let t = s.trim().to_string();
-        if t.is_empty() { None } else { Some(t) }
-    });
-    
-    // Create the profile
-    match db::create_profile(
-        conn,
-        &name,
-        mode_str,
-        temp,
-        greeting.as_deref(),
-        description.as_deref(),
-        heater,
-        ac,
-        light,
-        fan,
-    ) {
-        Ok(_) => {
-            println!("\n✅ Profile '{}' created successfully!", name);
-            let _ = db::log_profile_edited(conn, username, user_role, &name, None, mode_str, None, temp);
-        }
-        Err(e) => println!("\n❌ Failed to create profile: {}", e),
-    }
-    
-    wait_for_enter();
-    Ok(())
-}
-
-// ===============================================================
-//                  HELPER: DELETE PROFILE
-// ===============================================================
-fn delete_profile_flow(conn: &mut Connection, username: &str, _user_role: &str) -> Result<()> {
-    println!("\n🗑️  DELETE PROFILE");
-    println!("══════════════════════════════════════════════════");
-    
-    // List all profiles
-    let profiles = db::list_profile_rows(conn)?;
-    let custom_profiles: Vec<_> = profiles.iter()
-        .filter(|p| !db::is_default_profile(&p.name))
-        .collect();
-    
-    if custom_profiles.is_empty() {
-        println!("❌ No custom profiles to delete.");
-        println!("💡 Default profiles (Day/Night/Sleep/Party/Vacation/Away) cannot be deleted.");
-        wait_for_enter();
-        return Ok(());
-    }
-    
-    println!("\n📋 Custom Profiles (deletable):");
-    for (idx, p) in custom_profiles.iter().enumerate() {
-        println!("[{}] {} - {} mode, {:.1}°C", idx + 1, p.name, p.mode, p.target_temp);
-    }
-    
-    print!("\nEnter profile name to delete (or 'cancel'): ");
-    io::stdout().flush().ok();
-    let name = match prompt_input() {
-        Some(s) => s.trim().to_string(),
-        None => return Ok(()),
-    };
-    
-    if name.eq_ignore_ascii_case("cancel") {
-        println!("❌ Deletion cancelled.");
-        wait_for_enter();
-        return Ok(());
-    }
-    
-    // Confirm deletion
-    print!("\n⚠️  Are you sure you want to delete profile '{}'? (yes/no): ", name);
-    io::stdout().flush().ok();
-    let confirm = match prompt_input() {
-        Some(s) => s.trim().to_lowercase(),
-        None => return Ok(()),
-    };
-    
-    if confirm != "yes" {
-        println!("❌ Deletion cancelled.");
-        wait_for_enter();
-        return Ok(());
-    }
-    
-    // Delete the profile
-    match db::delete_profile(conn, &name) {
-        Ok(_) => {
-            println!("\n✅ Profile '{}' deleted successfully!", name);
-            let _ = logger::log_event(conn, username, Some(username), "HVAC", Some(&format!("Deleted custom profile: {}", name)));
-        }
-        Err(e) => println!("\n❌ Failed to delete profile: {}", e),
-    }
-    
-    wait_for_enter();
-    Ok(())
-}
-
-// ===============================================================
-//                  HELPER: EDIT PROFILE (FULL)
-// ===============================================================
-fn edit_profile_full_flow(conn: &mut Connection, username: &str, user_role: &str) -> Result<()> {
-    println!("\n✏️  EDIT PROFILE");
-    println!("══════════════════════════════════════════════════");
-    
-    // List all profiles
-    let profiles = db::list_profile_rows(conn)?;
-    println!("\n📋 Available Profiles:");
-    for (idx, p) in profiles.iter().enumerate() {
-        let profile_type = if db::is_default_profile(&p.name) { "🔒" } else { "✨" };
-        println!("[{}] {} {} - {} mode, {:.1}°C, fan={}, light={}", 
-            idx + 1, profile_type, p.name, p.mode, p.target_temp, p.fan_speed, p.light_status);
-    }
-    
-    print!("\nEnter profile name to edit: ");
-    io::stdout().flush().ok();
-    let name = match prompt_input() {
-        Some(s) => s.trim().to_string(),
-        None => return Ok(()),
-    };
-    
-    // Get existing profile
-    let old_profile = match db::get_profile_row(conn, &name)? {
-        Some(p) => p,
-        None => {
-            println!("❌ Profile '{}' not found.", name);
-            wait_for_enter();
-            return Ok(());
-        }
-    };
-    
-    println!("\n📝 Editing: {} (current: {} mode, {:.1}°C)", name, old_profile.mode, old_profile.target_temp);
-    println!("Press Enter to keep current value");
-    
-    // Mode selection
-    println!("\n📌 HVAC Mode (current: {})", old_profile.mode);
-    println!("[1] Off  [2] Heating  [3] Cooling  [4] FanOnly  [5] Auto  [Enter] Keep current");
-    let mode_str = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => match s.trim() {
-            "1" => "Off",
-            "2" => "Heating",
-            "3" => "Cooling",
-            "4" => "FanOnly",
-            "5" => "Auto",
-            _ => old_profile.mode.as_str()
-        },
-        _ => old_profile.mode.as_str()
-    };
-    
-    // Temperature
-    print!("\n🌡️  Target temperature (current: {:.1}°C, range: 16-40): ", old_profile.target_temp);
-    io::stdout().flush().ok();
-    let temp = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => {
-            match s.trim().parse::<f32>() {
-                Ok(t) if HVACSystem::is_valid_temperature(t) => t,
-                _ => {
-                    println!("❌ Invalid temperature, keeping current");
-                    old_profile.target_temp
-                }
-            }
-        }
-        _ => old_profile.target_temp
-    };
-    
-    // Heater status
-    println!("\n🔥 Heater (current: {}): [1] On  [2] Off  [3] Auto  [Enter] Keep current", old_profile.heater_status);
-    let heater = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => match s.trim() {
-            "1" => "On",
-            "2" => "Off",
-            "3" => "Auto",
-            _ => old_profile.heater_status.as_str()
-        },
-        _ => old_profile.heater_status.as_str()
-    };
-    
-    // AC status
-    println!("\n❄️  Air Conditioner (current: {}): [1] On  [2] Off  [3] Auto  [Enter] Keep current", old_profile.ac_status);
-    let ac = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => match s.trim() {
-            "1" => "On",
-            "2" => "Off",
-            "3" => "Auto",
-            _ => old_profile.ac_status.as_str()
-        },
-        _ => old_profile.ac_status.as_str()
-    };
-    
-    // Light status
-    println!("\n💡 Light (current: {}): [1] ON  [2] OFF  [Enter] Keep current", old_profile.light_status);
-    let light = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => match s.trim() {
-            "1" => "ON",
-            "2" => "OFF",
-            _ => old_profile.light_status.as_str()
-        },
-        _ => old_profile.light_status.as_str()
-    };
-    
-    // Fan speed
-    println!("\n💨 Fan Speed (current: {}): [1] Low  [2] Medium  [3] High  [Enter] Keep current", old_profile.fan_speed);
-    let fan = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => match s.trim() {
-            "1" => "Low",
-            "2" => "Medium",
-            "3" => "High",
-            _ => old_profile.fan_speed.as_str()
-        },
-        _ => old_profile.fan_speed.as_str()
-    };
-    
-    // Optional greeting
-    println!("\n💬 Custom greeting (current: {:?})", old_profile.greeting);
-    print!("Enter new greeting (or press Enter to keep current): ");
-    io::stdout().flush().ok();
-    let greeting = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
-        _ => old_profile.greeting.clone()
-    };
-    
-    // Optional description  
-    println!("\n📝 Description (current: {:?})", old_profile.description);
-    print!("Enter new description (or press Enter to keep current): ");
-    io::stdout().flush().ok();
-    let description = match prompt_input() {
-        Some(s) if !s.trim().is_empty() => Some(s.trim().to_string()),
-        _ => old_profile.description.clone()
-    };
-    
-    // Update the profile
-    match db::update_profile_full(
-        conn,
-        &name,
-        mode_str,
-        temp,
-        greeting.as_deref(),
-        description.as_deref(),
-        heater,
-        ac,
-        light,
-        fan,
-    ) {
-        Ok(_) => {
-            println!("\n✅ Profile '{}' updated successfully!", name);
-            let _ = db::log_profile_edited(conn, username, user_role, &name, Some(&old_profile.mode), mode_str, Some(old_profile.target_temp), temp);
-        }
-        Err(e) => println!("\n❌ Failed to update profile: {}", e),
-    }
-    
-    wait_for_enter();
-    Ok(())
-}
-
-
 
 
 

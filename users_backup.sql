@@ -1,5 +1,0 @@
-INSERT INTO users VALUES(1,'Admin','$argon2id$v=19$m=65536,t=3,p=1$paPQlFgncuhlbTaY7DKLfg$C/zVSc9v+26DUa3+y0fXH+w34fpqOcJv6byArQerhfI','admin',NULL,1,'2025-11-02 21:45:38','2025-11-01 17:31:22','2025-11-02 21:45:38');
-INSERT INTO users VALUES(2,'proma','$argon2id$v=19$m=65536,t=3,p=1$UUCeJdZPVbtp/QeF+xyO9w$5FWmA4LBG0xTPppLZKx6OPqWLSBwKxqSun9CrSTj+Fk','homeowner',NULL,1,'2025-11-02 21:39:53','2025-11-01 18:13:57','2025-11-02 21:39:53');
-INSERT INTO users VALUES(3,'technician2','$argon2id$v=19$m=65536,t=3,p=1$ciGlygYQDGpldEz1MJHRVQ$jKHMlls6iYwQlzDqreRgNLJBPIYe+ByhQKUoWtVXS8Y','technician',NULL,1,'2025-11-02 21:38:23','2025-11-01 18:17:23','2025-11-02 21:38:23');
-INSERT INTO users VALUES(4,'guestforproma2','$argon2id$v=19$m=65536,t=3,p=1$gH9yygOX9Yl0S8XlbgYnqA$3vcI6pDrOykUeVuTxzRlFfbnsov5DiIKZxk2pTExYZI','guest',2,1,'2025-11-02 03:00:32','2025-11-01 20:35:22','2025-11-02 03:00:32');
-INSERT INTO users VALUES(5,'proma2','$argon2id$v=19$m=65536,t=3,p=1$wioLMJZIM0Q2MOrPnsbryA$UsolK9WN+eS5lzhcPGHU8n6TI7p+8LWXb1alquNGPw8','homeowner',NULL,1,'2025-11-02 21:36:27','2025-11-01 21:50:22','2025-11-02 21:36:27');
