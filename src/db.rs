@@ -1161,38 +1161,48 @@ fn migrate_hvac_state_table(conn: &Connection) -> Result<()> {
         |r| r.get(0),
     );
     
-    if let Ok(count) = light_column_check {
-        if count == 0 {
-            // Recreate table with light_status column (no ALTER TABLE)
-            conn.execute_batch(
-                r#"
-                -- Create new table with light_status column
-                CREATE TABLE hvac_state_new (
-                    id INTEGER PRIMARY KEY CHECK(id = 1),
-                    mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
-                    target_temperature REAL NOT NULL,
-                    light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
-                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
-                );
+    // Check if current_profile column exists in hvac_state table
+    let profile_column_check: Result<i64, _> = conn.query_row(
+        "SELECT COUNT(*) FROM pragma_table_info('hvac_state') WHERE name='current_profile'",
+        [],
+        |r| r.get(0),
+    );
+    
+    let needs_light = light_column_check.map(|c| c == 0).unwrap_or(false);
+    let needs_profile = profile_column_check.map(|c| c == 0).unwrap_or(false);
+    
+    if needs_light || needs_profile {
+        // Recreate table with both light_status and current_profile columns (no ALTER TABLE)
+        conn.execute_batch(
+            r#"
+            -- Create new table with light_status and current_profile columns
+            CREATE TABLE hvac_state_new (
+                id INTEGER PRIMARY KEY CHECK(id = 1),
+                mode TEXT NOT NULL CHECK(mode IN ('Off','Heating','Cooling','FanOnly','Auto')),
+                target_temperature REAL NOT NULL,
+                light_status TEXT DEFAULT 'OFF' CHECK(light_status IN ('ON','OFF')),
+                current_profile TEXT,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            );
 
-                -- Copy existing data
-                INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, updated_at)
-                SELECT 
-                    id, 
-                    mode, 
-                    target_temperature,
-                    'OFF' as light_status,
-                    updated_at
-                FROM hvac_state;
+            -- Copy existing data
+            INSERT INTO hvac_state_new (id, mode, target_temperature, light_status, current_profile, updated_at)
+            SELECT 
+                id, 
+                mode, 
+                target_temperature,
+                COALESCE(light_status, 'OFF') as light_status,
+                NULL as current_profile,
+                updated_at
+            FROM hvac_state;
 
-                -- Drop old table
-                DROP TABLE hvac_state;
+            -- Drop old table
+            DROP TABLE hvac_state;
 
-                -- Rename new table
-                ALTER TABLE hvac_state_new RENAME TO hvac_state;
-                "#
-            )?;
-        }
+            -- Rename new table
+            ALTER TABLE hvac_state_new RENAME TO hvac_state;
+            "#
+        )?;
     }
     
     Ok(())
@@ -1624,23 +1634,24 @@ pub fn insert_weather(conn: &mut Connection, data: &WeatherRecord) -> Result<()>
 }
 
 // Get current HVAC state from database
-pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String)> {
-    let mut stmt = conn.prepare("SELECT mode, target_temperature, light_status FROM hvac_state WHERE id = 1")?;
+pub fn get_hvac_state(conn: &Connection) -> Result<(String, f32, String, Option<String>)> {
+    let mut stmt = conn.prepare("SELECT mode, target_temperature, light_status, current_profile FROM hvac_state WHERE id = 1")?;
     let result = stmt.query_row([], |row| {
         Ok((
             row.get::<_, String>(0)?, 
             row.get::<_, f32>(1)?,
-            row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "OFF".to_string())
+            row.get::<_, Option<String>>(2)?.unwrap_or_else(|| "OFF".to_string()),
+            row.get::<_, Option<String>>(3)?
         ))
     })?;
     Ok(result)
 }
 
 // Save current HVAC state to database
-pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, light_status: &str) -> Result<()> {
+pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, light_status: &str, current_profile: Option<&str>) -> Result<()> {
     conn.execute(
-        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, light_status = ?3, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
-        params![mode, target_temperature, light_status],
+        "UPDATE hvac_state SET mode = ?1, target_temperature = ?2, light_status = ?3, current_profile = ?4, updated_at = CURRENT_TIMESTAMP WHERE id = 1",
+        params![mode, target_temperature, light_status, current_profile],
     )?;
     Ok(())
 

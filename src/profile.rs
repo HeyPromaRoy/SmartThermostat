@@ -82,6 +82,10 @@ pub fn apply_profile(conn: &Connection, hvac: &mut HVACSystem, profile: HVACProf
         hvac.set_light_status(conn, &row.light_status);
     }
     
+    // Set current profile name and save to database
+    hvac.current_profile = Some(name.clone());
+    hvac.save_state(conn);
+    
     // Display profile application with decorative format
     let greet = greeting_opt.as_deref().unwrap_or(profile.greeting_message());
     let now = Local::now();
