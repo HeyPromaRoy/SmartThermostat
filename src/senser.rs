@@ -6,7 +6,7 @@ use rand::Rng;
 use std::fmt;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-/// Senser type
+// Senser type
 #[derive(Debug, Clone, Copy)]
 pub enum SensorType {
     TemperatureC, // C(degree)
@@ -14,7 +14,7 @@ pub enum SensorType {
     COPpm,        // CO ppm
 }
 
-/// data unit
+// data unit
 #[derive(Debug, Clone, Copy)]
 pub struct IndoorReading {
     pub temperature_c: f32,
@@ -22,7 +22,7 @@ pub struct IndoorReading {
     pub co_ppm: f32,
 }
 
-/// Error type
+// Error type
 #[derive(Debug)]
 pub enum SensorError {
     InvalidBounds {
@@ -34,7 +34,7 @@ pub enum SensorError {
     DataSource(&'static str),
 }
 
-/// Dashboard for indoor data
+// Dashboard for indoor data
 #[derive(Debug, Clone, Copy)]
 pub struct Thresholds {
     pub temp_warn_hi: f32, // °C
@@ -64,7 +64,7 @@ impl fmt::Display for SensorError {
 
 impl std::error::Error for SensorError {}
 
-/// make sure f32 is not NaN/infinite
+// make sure f32 is not NaN/infinite
 fn validate_finite(x: f32) -> Result<(), SensorError> {
     if !x.is_finite() {
         return Err(SensorError::InvalidInput("non-finite float"));
@@ -72,12 +72,12 @@ fn validate_finite(x: f32) -> Result<(), SensorError> {
     Ok(())
 }
 
-/// make sure that data range is resonable
+// make sure that data range is resonable
 fn clamp(v: f32, lo: f32, hi: f32) -> f32 {
     if v < lo { lo } else if v > hi { hi } else { v }
 }
 
-/// set default boundary for each senser(upper/lower bound)
+// set default boundary for each senser(upper/lower bound)
 fn default_bounds(kind: SensorType) -> (f32, f32) {
     match kind {
         SensorType::TemperatureC => (-15.0, 45.0),
@@ -86,11 +86,11 @@ fn default_bounds(kind: SensorType) -> (f32, f32) {
     }
 }
 
-/// Generate random data to simulate the source data from senser
-/// input: type of senser, lower bound, upper bound
-/// output: number(f32)
-/// - check lower < upper, and infinite
-/// - output range is between [lower, upper]
+// Generate random data to simulate the source data from senser
+// input: type of senser, lower bound, upper bound
+// output: number(f32)
+// - check lower < upper, and infinite
+// - output range is between [lower, upper]
 pub fn gen_random_data(
     sensor: SensorType,
     lower: f32,
@@ -119,8 +119,8 @@ pub fn gen_random_data(
     Ok(v)
 }
 
-/// Get the indoor temperature(°C)
-/// output: number(f32)
+// Get the indoor temperature(°C)
+// output: number(f32)
 pub fn get_indoor_temperature() -> Result<f32, SensorError> {
     let (lo, hi) = default_bounds(SensorType::TemperatureC);
     let samples = 3;
@@ -132,23 +132,23 @@ pub fn get_indoor_temperature() -> Result<f32, SensorError> {
     Ok(clamp(avg, lo, hi))
 }
 
-/// Get the indoor humidiry(%)
-/// output: numberf32)
+// Get the indoor humidiry(%)
+// output: numberf32)
 pub fn get_indoor_humidity() -> Result<f32, SensorError> {
     let (lo, hi) = default_bounds(SensorType::HumidityPct);
     let v = gen_random_data(SensorType::HumidityPct, lo, hi)?;
     Ok(clamp(v, lo, hi))
 }
 
-/// Get the indoor CO level(ppm)
-/// output: number(f32)
+// Get the indoor CO level(ppm)
+// output: number(f32)
 pub fn get_indoor_colevel() -> Result<f32, SensorError> {
     let (lo, hi) = default_bounds(SensorType::COPpm);
     let v = gen_random_data(SensorType::COPpm, lo, hi)?;
     Ok(clamp(v, lo, hi))
 }
 
-/// Get all the indoor data with time
+// Get all the indoor data with time
 pub fn read_all() -> Result<IndoorReading, SensorError> {
     let temperature_c = get_indoor_temperature()?;
     let humidity_pct = get_indoor_humidity()?;
