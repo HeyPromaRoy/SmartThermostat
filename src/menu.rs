@@ -504,7 +504,7 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
         }
             "5" => {
                 println!("Running diagnostics...");
-                diagnostic::run_diagnostics();
+                let _ = diagnostic::run_diagnostics();
                 wait_for_enter();
             },
             "6" => {

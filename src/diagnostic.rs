@@ -1,4 +1,3 @@
-// src/diagnostic.rs
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use rand::Rng;
@@ -31,7 +30,8 @@ pub fn run_diagnostics() -> Result<()> {
         );
         pb.set_message(format!("({}/{}) Checking: {}", i + 1, total, name));
 
-        let step_ms: u64 = rand::thread_rng().gen_range(600..1100);
+        let step_ms: u64 = rand::rng().random_range(600..1100);
+
         let per_tick = step_ms / 100;
         for p in 0..=100 {
             pb.set_position(p);
@@ -44,4 +44,3 @@ pub fn run_diagnostics() -> Result<()> {
     println!("\n✅ All systems are functioning normally! Diagnostics completed successfully.\n");
     Ok(())
 }
-
