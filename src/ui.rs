@@ -98,13 +98,13 @@ pub fn homeowner_ui() {
     println!("{}{}", spacing2, "[1] View profile              |  [6] View System Status".color(Color::White));
     println!("{}{}", spacing2, "[2] Manage Guests             |  [7] Profile Settings".color(Color::White));
     println!("{}{}", spacing2, "[3] Indoor Sensing            |  [8] Energy Usage".color(Color::White));
-    println!("{}{}", spacing2, "[4] Outdoor Weather           |  [9] Request a Technician".color(Color::White));
-    println!("{}{}", spacing2, "[5] HVAC Control              |  [A] View Active Grants".color(Color::White));
-    println!("{}{}", spacing2, "[B] Energy Comparison         |  ".color(Color::White));
+    println!("{}{}", spacing2, "[4] Outdoor Weather           |  [9] Energy Comparison".color(Color::White));
+    println!("{}{}", spacing2, "[5] HVAC Control              |  ".color(Color::White));
+    println!("{}{}", spacing2, "[A] Request a Technician      |  [B] View Active Grants".color(Color::White));
     println!("{}{}", spacing2, "              [0] Log out".color(Color::Red));
     
      println!(); 
-    print!("{}", "Select an option [0-9, A-D]: ".bold().color(Color::Cyan));
+    print!("{}", "Select an option [0-9, A-B]: ".bold().color(Color::Cyan));
 
 }
 
@@ -191,10 +191,12 @@ pub fn manage_guest_menu() {
     println!("{}{}{}", spacing1,  menu_spc, "GUEST MANAGEMENT MENU".bold().color(title_color));
     println!("{}{}", spacing1, menu_bar.color(bar_color));
     
-    println!("{}{}", spacing2, "[1] Reset Guest Pin".color(text_color));
-    println!("{}{}", spacing2, "[2] Enable/Disable Guest Account".color(text_color));
-    println!("{}{}", spacing2, "[3] Delete Guest Account".color(text_color));
-    println!("{}{}", spacing2, "[4] Return to Homeowner Menu".color(text_color));
+    println!("{}{}", spacing2, "[1] Register Guest".color(text_color));
+    println!("{}{}", spacing2, "[2] View guest(s)".color(text_color));
+    println!("{}{}", spacing2, "[3] Reset Guest Pin".color(text_color));
+    println!("{}{}", spacing2, "[4] Enable/Disable Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[5] Delete Guest Account".color(text_color));
+    println!("{}{}", spacing2, "[6] Return to User Menu".color(text_color));
 
     println!();
     print!("{}","Select an option [1-4]: ".bold().color(Color::Cyan));
@@ -314,5 +316,8 @@ pub fn profile_selection_ui() {
     println!();
     print!("{}","Select a profile [0-6]: ".bold().color(Color::Cyan));
 }
+
+
+
 
 

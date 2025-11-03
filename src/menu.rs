@@ -3,7 +3,7 @@ use anyhow::Result;
 use std::io::{self, Write};
 
 
-use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather};
+use crate::{auth, db, guest, hvac, logger, senser, technician, ui, weather, diagnostic};
 use crate::energy;
 use crate::function::{prompt_input, wait_for_enter};
 
@@ -352,19 +352,20 @@ fn homeowner_menu(conn: &mut Connection, username: &str, role: &str) -> Result<b
                     wait_for_enter();
             },
             "9" => { 
+                if let Err(e) = energy::compare_energy_usage(conn, username) {
+                println!("Error comparing energy usage: {}", e);
+                wait_for_enter(); }
                 technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
             },
             "A" => {
-                println!("Your active technician access grants:");
-                db::list_active_grants(conn, username)?;
+                technician::homeowner_request_tech(conn)?;
                 wait_for_enter();
             }
             "B" => {
-
-                if let Err(e) = energy::compare_energy_usage(conn, username) {
-                        println!("Error comparing energy usage: {}", e);
-                        wait_for_enter(); }
+                println!("Your active technician access grants:");
+                db::list_active_grants(conn, username)?;
+                wait_for_enter();
             }
 
             "0" => {
@@ -501,7 +502,11 @@ fn technician_menu(conn: &mut Connection, username: &str, role: &str) -> Result<
             }
             } else { println!("Cancelled."); }
         }
-            "5" => println!("Running diagnostics (coming soon)..."),
+            "5" => {
+                println!("Running diagnostics...");
+                let _ = diagnostic::run_diagnostics();
+                wait_for_enter();
+            },
             "6" => {
                 show_system_status(conn, username, role)?;
             },
@@ -812,6 +817,7 @@ fn manage_profiles_menu(conn: &mut Connection, admin_username: &str, current_rol
 
     Ok(())
 }
+
 
 
 
