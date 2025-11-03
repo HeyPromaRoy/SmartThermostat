@@ -365,7 +365,7 @@ pub fn hash_password(password: &str) -> Result<String> {
     Ok(phc.to_string()) // Convert pwd hash to string (sutiable for storage in db)
 }
 
-fn role_is_valid(role: &str) -> bool {
+pub fn role_is_valid(role: &str) -> bool {
     matches!(role, "homeowner" | "guest" | "technician")
 }
 
@@ -573,5 +573,6 @@ pub fn logout_user(conn: &Connection) -> Result<()> {
 
     Ok(())
 }
+
 
 
