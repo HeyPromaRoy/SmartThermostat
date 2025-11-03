@@ -70,7 +70,7 @@ pub fn init_system_db() -> Result<Connection> {
             event_type TEXT NOT NULL CHECK(
                 event_type IN (
                     'ACCOUNT_CREATED', 'SUCCESS_LOGIN', 'FAILURE_LOGIN', 'LOGOUT', 'LOCKOUT', 'SESSION_LOCKOUT', 'LOCKOUT_CLEARED',
-                    'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC'
+                    'ACCOUNT_DELETED', 'ACCOUNT_DISABLED', 'ACCOUNT_ENABLED', 'ADMIN_LOGIN', 'PASSWORD_CHANGE', 'HVAC',
                     'ACCESS_GRANTED', 'ACCESS_EXPIRED', 'TECH_ACCESS'
                 )
             ),
@@ -1507,6 +1507,7 @@ pub fn save_hvac_state(conn: &Connection, mode: &str, target_temperature: f32, l
     Ok(())
 
 }
+
 
 
 
