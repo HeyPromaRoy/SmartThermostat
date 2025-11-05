@@ -9,5 +9,5 @@
 .vscode
 
 # Ignore specific files
-sqlite3
-vcpkg/
+#sqlite3
+#vcpkg/
